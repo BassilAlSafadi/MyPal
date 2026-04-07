@@ -8,7 +8,8 @@ interface LogoIconProps {
 
 export const LogoIcon = ({ size = 40, className = '', showWordmark = true }: LogoIconProps) => {
   const { resolvedTheme } = useTheme();
-  const fillColor = resolvedTheme === 'dark' ? '#FFFFFF' : '#1e3a8a';
+  const color = resolvedTheme === 'dark' ? '#FFFFFF' : '#1e3a8a';
+  const accent = resolvedTheme === 'dark' ? '#FFFFFF' : '#2563eb';
 
   return (
     <div className={`flex items-center gap-3 ${className}`}>
@@ -20,59 +21,47 @@ export const LogoIcon = ({ size = 40, className = '', showWordmark = true }: Log
         xmlns="http://www.w3.org/2000/svg"
         className="flex-shrink-0"
       >
-        {/* Rounded square background */}
         <rect
           x="2"
           y="2"
           width="44"
           height="44"
-          rx="10"
-          fill={fillColor}
-          fillOpacity="0.1"
-          stroke={fillColor}
-          strokeWidth="2"
-        />
-        {/* Globe/orb icon representing global inventory */}
-        <circle
-          cx="24"
-          cy="24"
-          r="12"
-          stroke={fillColor}
-          strokeWidth="2"
-          fill="none"
-        />
-        {/* Horizontal line through globe */}
-        <ellipse
-          cx="24"
-          cy="24"
           rx="12"
-          ry="5"
-          stroke={fillColor}
-          strokeWidth="1.5"
-          fill="none"
+          fill={accent}
+          fillOpacity="0.1"
+          stroke={accent}
+          strokeWidth="2"
         />
-        {/* Vertical arc on globe */}
         <path
-          d="M24 12C28 12 31 17.5 31 24C31 30.5 28 36 24 36C20 36 17 30.5 17 24C17 17.5 20 12 24 12Z"
-          stroke={fillColor}
-          strokeWidth="1.5"
-          fill="none"
-        />
-        {/* Small sparkle/AI indicator */}
-        <circle cx="35" cy="13" r="3" fill={fillColor} />
-        <path
-          d="M35 9V11M35 15V17M31 13H33M37 13H39"
-          stroke={fillColor}
-          strokeWidth="1.5"
+          d="M12 32C18 22 28 20 36 14"
+          stroke={accent}
+          strokeWidth="3"
           strokeLinecap="round"
+          fill="none"
+        />
+        <path
+          d="M14 30C18 26 26 24 34 16"
+          stroke={accent}
+          strokeWidth="2"
+          strokeLinecap="round"
+          fill="none"
+        />
+        <path
+          d="M14 30L20 20C22 16 28 14 32 18L34 22"
+          stroke={accent}
+          strokeWidth="2"
+          strokeLinecap="round"
+          fill="none"
+        />
+        <circle cx="34" cy="12" r="3.5" fill={accent} />
+        <path
+          d="M34 8.5L35.5 11.7L39.2 12.5L35.5 13.3L34 16.5L32.5 13.3L28.8 12.5L32.5 11.7L34 8.5Z"
+          fill={resolvedTheme === 'dark' ? '#1e3a8a' : '#FFFFFF'}
         />
       </svg>
-      
+
       {showWordmark && (
-        <span
-          className="text-lg font-bold tracking-tight"
-          style={{ color: fillColor }}
-        >
+        <span className="text-lg font-bold tracking-tight" style={{ color }}>
           MyPal
         </span>
       )}
