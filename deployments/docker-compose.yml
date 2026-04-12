@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  go-gateway:
+    build: 
+      context: ../src/MyPal.Api.Go
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - POSTGRES_URL=${POSTGRES_URL}
+      - MONGO_URI=${MONGO_URI}
+      - REDIS_HOST=${REDIS_HOST}
+      - JWT_SECRET=${JWT_SECRET}
+
+  csharp-backend:
+    build: 
+      context: ../src/MyPal.Backend.CSharp
+      dockerfile: Dockerfile
+    ports:
+      - "5000:8080"
+    environment:
+      - POSTGRES_URL=${POSTGRES_URL}
+      - MONGO_URI=${MONGO_URI}
+      - REDIS_HOST=${REDIS_HOST}
+      - JWT_SECRET=${JWT_SECRET}

@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package mypal.ordering;
+option go_package = "mypal/api/go/pb/ordering";
+option csharp_namespace = "MyPal.API.Protos.Ordering";
+
+message Order {
+    string id = 1;
+    string buyer_user_id = 2;
+    string status = 3;
+    double total_amount = 4;
+}
+
+service OrderingService {
+    rpc CreateOrder(CreateOrderRequest) returns (Order);
+}
+
+message CreateOrderRequest {
+    string buyer_user_id = 1;
+}
