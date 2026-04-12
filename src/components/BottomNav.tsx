@@ -6,6 +6,7 @@ const navItems = [
   { path: '/search', icon: Search, label: 'Search' },
   { path: '/ai-search', icon: Sparkles, label: 'AI Search' },
   { path: '/wallet', icon: Wallet, label: 'Wallet' },
+  { path: '/wishlist', icon: Heart, label: 'Wishlist' },
   { path: '/settings', icon: Settings, label: 'Settings' },
 ];
 
@@ -20,8 +21,8 @@ const BottomNav = () => {
           {navItems.map(({ path, icon: Icon, label }, index) => {
             const active = location.pathname === path;
             
-            // Add FAB in the middle (after AI Search, before Wallet)
-            if (index === 2) {
+            // Add FAB in the middle (after Wallet, before Wishlist)
+            if (index === 3) {
               return (
                 <div key={path} className="flex items-center gap-1">
                   <button

@@ -44,12 +44,7 @@ const SplashScreen = () => {
     >
       <div className="flex flex-col items-center gap-6 animate-fade-in-up">
         {/* Large Logo */}
-        <LogoIcon size={80} showWordmark={false} />
-        
-        {/* App Name */}
-        <h1 className="text-[28px] font-serif font-bold text-foreground">
-          MyPal
-        </h1>
+        <LogoIcon size={120} showWordmark={false} />
         
         {/* Subtitle - Only shown on splash screen */}
         <p className="text-sm text-muted-foreground tracking-wide">

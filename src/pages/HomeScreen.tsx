@@ -58,7 +58,7 @@ const HomeScreen = () => {
       {/* Header */}
       <div className="px-4 pt-6 pb-4 space-y-4">
         <div className="flex items-center justify-between">
-          <LogoIcon size={40} />
+          <LogoIcon size={56} />
           <div className="flex items-center gap-2">
             <Button
               onClick={() => navigate('/sell')}

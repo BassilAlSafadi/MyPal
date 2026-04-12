@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Heart, Camera, Truck, ShieldCheck } from 'lucide-react';
+import { Heart, Camera, Truck, ShieldCheck, FileText } from 'lucide-react';
 import { useMockStore } from '@/lib/useMockStore';
 import type { Product } from '@/mock/products';
 import { getTrustBadgeConfig } from '@/mock/user';
@@ -15,6 +15,7 @@ export const ProductCard = ({ product, onClick }: ProductCardProps) => {
   const { wishlist, addToWishlist, removeFromWishlist, addToRecentViews } = useMockStore();
   const [imageError, setImageError] = useState(false);
   const [imageLoading, setImageLoading] = useState(true);
+  const [showSummary, setShowSummary] = useState(false);
   
   const isWishlisted = wishlist.includes(product.id);
   
@@ -99,9 +100,29 @@ export const ProductCard = ({ product, onClick }: ProductCardProps) => {
       {/* Content */}
       <div className="p-3 space-y-2">
         {/* Title */}
-        <h3 className="text-sm font-medium text-foreground line-clamp-2 leading-tight">
-          {product.title}
-        </h3>
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="text-sm font-medium text-foreground line-clamp-2 leading-tight flex-1">
+            {product.title}
+          </h3>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowSummary(!showSummary);
+              // TODO: Trigger AI summary here
+            }}
+            className="flex-shrink-0 p-1 rounded-md hover:bg-secondary transition-colors"
+            title="Summarize description"
+          >
+            <FileText className="w-3 h-3 text-muted-foreground" />
+          </button>
+        </div>
+
+        {/* Description Summary */}
+        {showSummary && (
+          <p className="text-xs text-muted-foreground line-clamp-3">
+            {product.description || 'No description available.'}
+          </p>
+        )}
 
         {/* Price */}
         <div className="flex items-baseline gap-2">
