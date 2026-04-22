@@ -1,0 +1,12 @@
+G:\MyPal\MyPal\Backend\CSharp\MyPal.App\bin\Debug\net9.0\MyPal.App.deps.json
+G:\MyPal\MyPal\Backend\CSharp\MyPal.App\bin\Debug\net9.0\MyPal.App.dll
+G:\MyPal\MyPal\Backend\CSharp\MyPal.App\bin\Debug\net9.0\MyPal.App.pdb
+G:\MyPal\MyPal\Backend\CSharp\MyPal.App\obj\Debug\net9.0\MyPal.App.GeneratedMSBuildEditorConfig.editorconfig
+G:\MyPal\MyPal\Backend\CSharp\MyPal.App\obj\Debug\net9.0\MyPal.App.AssemblyInfoInputs.cache
+G:\MyPal\MyPal\Backend\CSharp\MyPal.App\obj\Debug\net9.0\MyPal.App.AssemblyInfo.cs
+G:\MyPal\MyPal\Backend\CSharp\MyPal.App\obj\Debug\net9.0\MyPal.App.csproj.CoreCompileInputs.cache
+G:\MyPal\MyPal\Backend\CSharp\MyPal.App\obj\Debug\net9.0\MyPal.App.sourcelink.json
+G:\MyPal\MyPal\Backend\CSharp\MyPal.App\obj\Debug\net9.0\MyPal.App.dll
+G:\MyPal\MyPal\Backend\CSharp\MyPal.App\obj\Debug\net9.0\refint\MyPal.App.dll
+G:\MyPal\MyPal\Backend\CSharp\MyPal.App\obj\Debug\net9.0\MyPal.App.pdb
+G:\MyPal\MyPal\Backend\CSharp\MyPal.App\obj\Debug\net9.0\ref\MyPal.App.dll
