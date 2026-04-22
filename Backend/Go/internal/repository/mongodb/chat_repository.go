@@ -2,7 +2,7 @@ package mongodb
 
 import (
 	"context"
-	"MyPal/Backend/Go/internal/models"
+	"mypal/api/go/internal/models"
 )
 
 type ChatRepository interface {

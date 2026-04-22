@@ -30,7 +30,28 @@ public class MyPalDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        
+        modelBuilder.Entity<MyPalProduct>()
+        .HasBaseType<Product>();
 
+    // --- NEW CONFIGURATIONS ---
+    modelBuilder.Entity<MyPalProduct>()
+        .Property(p => p.SerialNumber)
+        .HasColumnName("serial_number")
+        .IsRequired(false); // Can be null if not yet assigned
+
+    modelBuilder.Entity<MyPalProduct>()
+        .Property(p => p.AuthenticityStatus)
+        .HasColumnName("authenticity_status")
+        .HasDefaultValue("pending")
+        .IsRequired();
+
+    modelBuilder.Entity<MyPalProduct>()
+        .Property(p => p.LastVerifiedAt)
+        .HasColumnName("last_verified_at")
+        .HasColumnType("timestamp without time zone")
+        .IsRequired(false);
+        
         modelBuilder.Entity<Cart>()
             .HasMany(x => x.CartItems)
             .WithOne(x => x.Cart)

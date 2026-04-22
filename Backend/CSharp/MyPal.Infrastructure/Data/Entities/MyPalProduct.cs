@@ -10,6 +10,21 @@ public class MyPalProduct
     [Column("product_id")]
     public Guid ProductId { get; set; }
 
-    public Product Product { get; set; } = null!;
-}
+    [Column("serial_number")]
+    public string? SerialNumber { get; set; }
 
+    [Column("authenticity_status")]
+    public string AuthenticityStatus { get; set; } = "pending";
+
+    [Column("last_verified_at")]
+    public DateTime? LastVerifiedAt { get; set; }
+    [Column("serial_number")]
+    public string? SerialNumber { get; set; }
+
+    [Column("authenticity_status")]
+    public string AuthenticityStatus { get; set; } = "pending";
+
+    [Column("last_verified_at", TypeName = "timestamp without time zone")]
+    public DateTime? LastVerifiedAt { get; set; }
+    public virtual Product Product { get; set; } = null!;
+}
