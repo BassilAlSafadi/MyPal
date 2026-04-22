@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using Microsoft.EntityFrameworkCore;
 using MyPal.Infrastructure.Data.Entities.Enums;
 
 namespace MyPal.Infrastructure.Data.Entities;

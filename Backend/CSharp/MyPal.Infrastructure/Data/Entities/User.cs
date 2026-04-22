@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using Microsoft.EntityFrameworkCore;
 
 namespace MyPal.Infrastructure.Data.Entities;
 
@@ -34,6 +35,28 @@ public class User
 
     [Column("is_deleted")]
     public bool? IsDeleted { get; set; }
+
+    // -------------------------------------------------------------------------
+    // Google Maps location — the user's current saved delivery address.
+    // These values are snapshotted into Order.Destination* at CreateOrder time
+    // so that historical orders are never affected by future profile updates.
+    // -------------------------------------------------------------------------
+
+    [Column("google_place_id")]
+    public string? GooglePlaceId { get; set; }
+
+    /// <summary>Latitude in decimal degrees (WGS 84). Stored as Postgres numeric(9,6).</summary>
+    [Column("lat", TypeName = "numeric")]
+    [Precision(9, 6)]
+    public double? Lat { get; set; }
+
+    /// <summary>Longitude in decimal degrees (WGS 84). Stored as Postgres numeric(9,6).</summary>
+    [Column("lng", TypeName = "numeric")]
+    [Precision(9, 6)]
+    public double? Lng { get; set; }
+
+    [Column("formatted_address")]
+    public string? FormattedAddress { get; set; }
 
     public ICollection<Cart> Carts { get; set; } = new List<Cart>();
 

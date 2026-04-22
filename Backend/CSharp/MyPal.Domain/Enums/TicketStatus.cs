@@ -1,4 +1,4 @@
-namespace MyPal.Support.Data.Enums
+namespace MyPal.Domain.Enums
 {
     public enum TicketStatus
     {

@@ -157,14 +157,13 @@ public class MyPalDbContext : DbContext
         where TEnum : struct, Enum
         => new(
             v => v.HasValue ? v.Value.ToString().ToLowerInvariant() : null,
-            v =>
-            {
-                if (string.IsNullOrWhiteSpace(v)) return null;
-                var normalized = NormalizeDbEnumToken(v);
-                return Enum.TryParse<TEnum>(normalized, ignoreCase: true, out var parsed)
-                    ? parsed
-                    : null;
-            });
+            v => string.IsNullOrWhiteSpace(v) ? (TEnum?)null : ParseEnum<TEnum>(v));
+
+    private static TEnum? ParseEnum<TEnum>(string v) where TEnum : struct, Enum
+    {
+        var normalized = NormalizeDbEnumToken(v);
+        return Enum.TryParse<TEnum>(normalized, ignoreCase: true, out var parsed) ? parsed : null;
+    }
 
     private static string NormalizeDbEnumToken(string token)
     {

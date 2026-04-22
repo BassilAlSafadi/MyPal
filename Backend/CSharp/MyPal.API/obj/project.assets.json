@@ -14,11 +14,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "G:\\MyPal\\MyPal\\src\\MyPal.Backend.CSharp\\MyPal.API\\MyPal.API.csproj",
+      "projectUniqueName": "G:\\MyPal\\MyPal\\Backend\\CSharp\\MyPal.API\\MyPal.API.csproj",
       "projectName": "MyPal.API",
-      "projectPath": "G:\\MyPal\\MyPal\\src\\MyPal.Backend.CSharp\\MyPal.API\\MyPal.API.csproj",
+      "projectPath": "G:\\MyPal\\MyPal\\Backend\\CSharp\\MyPal.API\\MyPal.API.csproj",
       "packagesPath": "C:\\Users\\Basil\\.nuget\\packages\\",
-      "outputPath": "G:\\MyPal\\MyPal\\src\\MyPal.Backend.CSharp\\MyPal.API\\obj\\",
+      "outputPath": "G:\\MyPal\\MyPal\\Backend\\CSharp\\MyPal.API\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -75,7 +75,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.312/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.313/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

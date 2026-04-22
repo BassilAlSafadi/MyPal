@@ -1,6 +1,6 @@
-using MyPal.Support.Data.Enums;
+using MyPal.Domain.Enums;
 
-namespace MyPal.Support.Data.Models
+namespace MyPal.Domain.Models
 {
     public class SupportTicket
     {

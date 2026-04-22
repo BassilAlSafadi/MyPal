@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "EMt0G8BonBY=",
+  "dgSpecHash": "3tFCgjBlJu4=",
   "success": true,
-  "projectFilePath": "G:\\MyPal\\MyPal\\src\\MyPal.Backend.CSharp\\MyPal.App\\MyPal.App.csproj",
+  "projectFilePath": "G:\\MyPal\\MyPal\\Backend\\CSharp\\MyPal.App\\MyPal.App.csproj",
   "expectedPackageFiles": [],
   "logs": []
 }
