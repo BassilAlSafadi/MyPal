@@ -21,10 +21,14 @@ public class MyPalDbContext : DbContext
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductAttribute> ProductAttributes => Set<ProductAttribute>();
+    public DbSet<ProductMedia> ProductMedia => Set<ProductMedia>();
     public DbSet<ProductReview> ProductReviews => Set<ProductReview>();
+    public DbSet<ProductValidationResult> ProductValidationResults => Set<ProductValidationResult>();
+    public DbSet<SellerPerformanceSummary> SellerPerformanceSummaries => Set<SellerPerformanceSummary>();
     public DbSet<SupportTicket> SupportTickets => Set<SupportTicket>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<UserAlgorithmSteering> UserAlgorithmSteerings => Set<UserAlgorithmSteering>();
     public DbSet<Vendor> Vendors => Set<Vendor>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -172,6 +176,36 @@ public class MyPalDbContext : DbContext
         modelBuilder.Entity<SupportTicket>()
             .Property(x => x.Priority)
             .HasConversion(LowercaseEnumConverter<SupportTicketPriority>());
+
+        // --- Order: PaymentMethod enum ---
+        // SQL stores 'Wallet', 'COD', 'Split' (PascalCase / uppercase acronym).
+        // The converter maps the C# enum to the exact DB strings so EF does not
+        // silently lowercase them and break the CHECK constraint.
+        modelBuilder.Entity<Order>()
+            .Property(x => x.PaymentMethod)
+            .HasConversion(
+                v => v.HasValue ? PaymentMethodToDbString(v.Value) : null,
+                v => string.IsNullOrWhiteSpace(v) ? (PaymentMethod?)null : DbStringToPaymentMethod(v));
+
+        // --- ProductMedia ---
+        modelBuilder.Entity<ProductMedia>()
+            .HasOne(x => x.Product)
+            .WithMany(x => x.ProductMedia)
+            .HasForeignKey(x => x.ProductId);
+
+        // --- UserAlgorithmSteering ---
+        // Composite PK: (user_id, sector_name/factor_key). Declared via [PrimaryKey]
+        // attribute on the entity; we configure the FK navigation here.
+        modelBuilder.Entity<UserAlgorithmSteering>()
+            .HasOne(x => x.User)
+            .WithMany(x => x.AlgorithmSteerings)
+            .HasForeignKey(x => x.UserId);
+
+        // weight_multiplier stored as numeric in Postgres but used as double in C#.
+        // EF will handle the numeric<->double conversion automatically via Npgsql.
+        modelBuilder.Entity<UserAlgorithmSteering>()
+            .Property(x => x.WeightMultiplier)
+            .HasColumnType("numeric");
     }
 
     private static ValueConverter<TEnum?, string?> LowercaseEnumConverter<TEnum>()
@@ -197,5 +231,26 @@ public class MyPalDbContext : DbContext
 
         return string.Concat(parts.Select(p => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(p.ToLowerInvariant())));
     }
+
+    /// <summary>
+    /// Converts a <see cref="PaymentMethod"/> enum value to the exact string stored in the DB.
+    /// 'COD' is an acronym and must stay uppercase to satisfy the Postgres CHECK constraint.
+    /// The generic LowercaseEnumConverter cannot be used here.
+    /// </summary>
+    private static string PaymentMethodToDbString(PaymentMethod method) => method switch
+    {
+        PaymentMethod.Wallet => "Wallet",
+        PaymentMethod.Cod    => "COD",
+        PaymentMethod.Split  => "Split",
+        _                    => throw new ArgumentOutOfRangeException(nameof(method), method, null),
+    };
+
+    private static PaymentMethod DbStringToPaymentMethod(string value) => value switch
+    {
+        "Wallet" => PaymentMethod.Wallet,
+        "COD"    => PaymentMethod.Cod,
+        "Split"  => PaymentMethod.Split,
+        _        => throw new ArgumentOutOfRangeException(nameof(value), value, $"Unknown payment_method: '{value}'"),
+    };
 }
 

@@ -1,12 +1,13 @@
 namespace MyPal.Infrastructure.Data.Entities.Enums;
 
+/// <summary>
+/// Maps to the SQL CHECK constraint on orders.status:
+/// ('Pending', 'Paid', 'Shipped', 'Delivered')
+/// </summary>
 public enum OrderStatus
 {
-    Unknown = 0,
-    Pending = 1,
-    Paid = 2,
-    Shipped = 3,
-    Completed = 4,
-    Cancelled = 5
+    Pending   = 1,
+    Paid      = 2,
+    Shipped   = 3,
+    Delivered = 4,
 }
-

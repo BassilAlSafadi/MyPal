@@ -56,5 +56,7 @@ public class Product
     public ICollection<ProductReview> ProductReviews { get; set; } = new List<ProductReview>();
 
     public ICollection<SupportTicket> SupportTickets { get; set; } = new List<SupportTicket>();
+
+    public ICollection<ProductMedia> ProductMedia { get; set; } = new List<ProductMedia>();
 }
 

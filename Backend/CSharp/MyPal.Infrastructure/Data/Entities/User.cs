@@ -58,6 +58,17 @@ public class User
     [Column("formatted_address")]
     public string? FormattedAddress { get; set; }
 
+    // -------------------------------------------------------------------------
+    // City / State — stored with SQL mixed-case column names ("City", "State").
+    // The [Column] attribute maps these to the exact DB column names.
+    // -------------------------------------------------------------------------
+
+    [Column("City")]
+    public string? City { get; set; }
+
+    [Column("State")]
+    public string? State { get; set; }
+
     public ICollection<Cart> Carts { get; set; } = new List<Cart>();
 
     public ICollection<Notification> Notifications { get; set; } = new List<Notification>();
@@ -71,5 +82,7 @@ public class User
     public ICollection<Transaction> Transactions { get; set; } = new List<Transaction>();
 
     public ICollection<Vendor> Vendors { get; set; } = new List<Vendor>();
+
+    public ICollection<UserAlgorithmSteering> AlgorithmSteerings { get; set; } = new List<UserAlgorithmSteering>();
 }
 
