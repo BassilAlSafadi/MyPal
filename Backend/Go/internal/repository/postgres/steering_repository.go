@@ -21,34 +21,29 @@ func NewSteeringRepository(db *pgxpool.Pool) repository.SteeringRepository {
 	return &steeringRepository{db: db}
 }
 
-// -----------------------------------------------------------------------------
-// UpsertSteering
-// -----------------------------------------------------------------------------
-
 const upsertSteeringSQL = `
 INSERT INTO public.user_algorithm_steering (
-    id,
     user_id,
-    factor_key,
+    sector_name,
     weight_multiplier,
+    is_pinned,
     updated_at
 ) VALUES (
     $1, $2, $3, $4, now()
 )
-ON CONFLICT (user_id, factor_key)
+ON CONFLICT (user_id, sector_name)
 DO UPDATE SET
     weight_multiplier = EXCLUDED.weight_multiplier,
+    is_pinned         = EXCLUDED.is_pinned,
     updated_at        = now()`
 
-// UpsertSteering inserts a new weight-multiplier row or updates the existing
-// one if (user_id, factor_key) already exists. Callers do not need to check
-// whether a row exists before calling this method.
+// UpsertSteering inserts or updates a row for (user_id, sector_name).
 func (r *steeringRepository) UpsertSteering(ctx context.Context, steering *models.AlgorithmSteering) error {
 	_, err := r.db.Exec(ctx, upsertSteeringSQL,
-		steering.ID,
 		steering.UserID,
-		steering.FactorKey,
+		steering.SectorName,
 		steering.WeightMultiplier,
+		steering.IsPinned,
 	)
 	if err != nil {
 		return fmt.Errorf("steeringRepository.UpsertSteering: exec: %w", err)
@@ -56,24 +51,18 @@ func (r *steeringRepository) UpsertSteering(ctx context.Context, steering *model
 	return nil
 }
 
-// -----------------------------------------------------------------------------
-// GetSteeringByUserID
-// -----------------------------------------------------------------------------
-
 const getSteeringByUserIDSQL = `
 SELECT
-    id,
     user_id,
-    factor_key,
+    sector_name,
     weight_multiplier,
+    is_pinned,
     updated_at
 FROM public.user_algorithm_steering
 WHERE user_id = $1
-ORDER BY factor_key ASC`
+ORDER BY sector_name ASC`
 
-// GetSteeringByUserID returns all weight-multiplier rows for a user.
-// Returns an empty (non-nil) slice when no rows exist — the AI layer should
-// treat an empty result as "all factors at their default weight of 1.0".
+// GetSteeringByUserID returns all steering rows for a user.
 func (r *steeringRepository) GetSteeringByUserID(ctx context.Context, userID string) ([]*models.AlgorithmSteering, error) {
 	rows, err := r.db.Query(ctx, getSteeringByUserIDSQL, userID)
 	if err != nil {
@@ -85,10 +74,10 @@ func (r *steeringRepository) GetSteeringByUserID(ctx context.Context, userID str
 	for rows.Next() {
 		s := &models.AlgorithmSteering{}
 		if err := rows.Scan(
-			&s.ID,
 			&s.UserID,
-			&s.FactorKey,
+			&s.SectorName,
 			&s.WeightMultiplier,
+			&s.IsPinned,
 			&s.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("steeringRepository.GetSteeringByUserID: scan: %w", err)
@@ -101,21 +90,14 @@ func (r *steeringRepository) GetSteeringByUserID(ctx context.Context, userID str
 	return results, nil
 }
 
-// -----------------------------------------------------------------------------
-// DeleteSteering
-// -----------------------------------------------------------------------------
-
 const deleteSteeringSQL = `
 DELETE FROM public.user_algorithm_steering
-WHERE user_id   = $1
-  AND factor_key = $2`
+WHERE user_id    = $1
+  AND sector_name = $2`
 
-// DeleteSteering removes a specific (user_id, factor_key) row.
-// After deletion the AI layer will use the model-default weight of 1.0 for
-// that factor on the next inference run.
-// Deleting a non-existent row is not an error.
-func (r *steeringRepository) DeleteSteering(ctx context.Context, userID string, factorKey string) error {
-	_, err := r.db.Exec(ctx, deleteSteeringSQL, userID, factorKey)
+// DeleteSteering removes a (user_id, sector_name) row.
+func (r *steeringRepository) DeleteSteering(ctx context.Context, userID string, sectorName string) error {
+	_, err := r.db.Exec(ctx, deleteSteeringSQL, userID, sectorName)
 	if err != nil {
 		return fmt.Errorf("steeringRepository.DeleteSteering: exec: %w", err)
 	}

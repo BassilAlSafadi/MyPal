@@ -23,8 +23,8 @@ public class ProductValidationResult
 
     /// <summary>FK to public.products. Not a typed navigation — the validation service
     /// may reference products that are not yet fully hydrated in the C# context.</summary>
-    [Column("mypal_product_id")]
-    public Guid? MyPalProductId { get; set; }
+    [Column("product_id")]
+    public Guid? ProductId { get; set; }
 
     /// <summary>Validation outcome, e.g. "verified", "flagged", "pending".</summary>
     [Column("status")]

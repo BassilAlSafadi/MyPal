@@ -29,7 +29,7 @@ public class Order
     public DateTime? UpdatedAt { get; set; }
 
     // -------------------------------------------------------------------------
-    // Destination — snapshotted from User.{GooglePlaceId, Lat, Lng, FormattedAddress}
+    // Destination — snapshotted from User.{GooglePlaceId, Lat, Lng, City, State}
     // at the moment the order is placed. These fields are immutable after creation.
     //
     // Rationale: a FK join to users at query-time would reflect the user's

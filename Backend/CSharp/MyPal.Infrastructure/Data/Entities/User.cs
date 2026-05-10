@@ -55,19 +55,14 @@ public class User
     [Precision(9, 6)]
     public double? Lng { get; set; }
 
-    [Column("formatted_address")]
-    public string? FormattedAddress { get; set; }
-
-    // -------------------------------------------------------------------------
-    // City / State — stored with SQL mixed-case column names ("City", "State").
-    // The [Column] attribute maps these to the exact DB column names.
-    // -------------------------------------------------------------------------
-
-    [Column("City")]
+    [Column("city")]
     public string? City { get; set; }
 
-    [Column("State")]
+    [Column("state")]
     public string? State { get; set; }
+
+    [Column("life_track_story")]
+    public string? LifeTrackStory { get; set; }
 
     public ICollection<Cart> Carts { get; set; } = new List<Cart>();
 
@@ -84,5 +79,7 @@ public class User
     public ICollection<Vendor> Vendors { get; set; } = new List<Vendor>();
 
     public ICollection<UserAlgorithmSteering> AlgorithmSteerings { get; set; } = new List<UserAlgorithmSteering>();
+
+    public ICollection<LifeTrackHistory> LifeTrackHistories { get; set; } = new List<LifeTrackHistory>();
 }
 

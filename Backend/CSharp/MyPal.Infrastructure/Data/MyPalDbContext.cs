@@ -25,6 +25,7 @@ public class MyPalDbContext : DbContext
     public DbSet<ProductReview> ProductReviews => Set<ProductReview>();
     public DbSet<ProductValidationResult> ProductValidationResults => Set<ProductValidationResult>();
     public DbSet<SellerPerformanceSummary> SellerPerformanceSummaries => Set<SellerPerformanceSummary>();
+    public DbSet<LifeTrackHistory> LifeTrackHistories => Set<LifeTrackHistory>();
     public DbSet<SupportTicket> SupportTickets => Set<SupportTicket>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<User> Users => Set<User>();
@@ -194,8 +195,7 @@ public class MyPalDbContext : DbContext
             .HasForeignKey(x => x.ProductId);
 
         // --- UserAlgorithmSteering ---
-        // Composite PK: (user_id, sector_name/factor_key). Declared via [PrimaryKey]
-        // attribute on the entity; we configure the FK navigation here.
+        // Composite PK: (user_id, sector_name). Declared via [PrimaryKey] on the entity.
         modelBuilder.Entity<UserAlgorithmSteering>()
             .HasOne(x => x.User)
             .WithMany(x => x.AlgorithmSteerings)
@@ -206,6 +206,24 @@ public class MyPalDbContext : DbContext
         modelBuilder.Entity<UserAlgorithmSteering>()
             .Property(x => x.WeightMultiplier)
             .HasColumnType("numeric");
+
+        modelBuilder.Entity<ProductValidationResult>()
+            .HasOne<Product>()
+            .WithMany()
+            .HasForeignKey(x => x.ProductId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<SellerPerformanceSummary>()
+            .HasOne(x => x.Seller)
+            .WithMany()
+            .HasForeignKey(x => x.SellerId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<LifeTrackHistory>()
+            .HasOne(x => x.User)
+            .WithMany(x => x.LifeTrackHistories)
+            .HasForeignKey(x => x.UserId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 
     private static ValueConverter<TEnum?, string?> LowercaseEnumConverter<TEnum>()

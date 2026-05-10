@@ -5,20 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace MyPal.Infrastructure.Data.Entities;
 
 /// <summary>
-/// Maps to public.seller_performance_summaries.
-///
-/// This table is the output of the AI-generated vendor performance pipeline.
-/// Rows are written by the Python inference service after it has processed
-/// a batch of product reviews for a given vendor over a specific period.
-///
-/// JSONB fields:
-///   TopComplaintThemes — a ranked array of complaint theme strings extracted
-///                        by the NLP model, e.g. ["late_delivery", "poor_packaging"].
-///                        Stored as raw JSON string; deserialize at the application layer.
-///
-/// The C# layer treats TopComplaintThemes as an opaque string to avoid coupling
-/// the EF model to a specific JSON schema that the Python service may evolve.
-/// Use System.Text.Json to deserialize when needed.
+/// Maps to public.seller_performance_summaries — AI-generated seller performance for a user (seller account).
 /// </summary>
 [Table("seller_performance_summaries", Schema = "public")]
 public class SellerPerformanceSummary
@@ -27,8 +14,10 @@ public class SellerPerformanceSummary
     [Column("id")]
     public Guid Id { get; set; }
 
-    [Column("vendor_id")]
-    public Guid? VendorId { get; set; }
+    [Column("seller_id")]
+    public Guid? SellerId { get; set; }
+
+    public User? Seller { get; set; }
 
     [Column("summary_period_start")]
     public DateOnly? SummaryPeriodStart { get; set; }
@@ -36,15 +25,9 @@ public class SellerPerformanceSummary
     [Column("summary_period_end")]
     public DateOnly? SummaryPeriodEnd { get; set; }
 
-    /// <summary>Free-text narrative produced by the AI model for this vendor/period.</summary>
     [Column("ai_generated_summary")]
     public string? AiGeneratedSummary { get; set; }
 
-    /// <summary>
-    /// JSONB column. Stores a ranked list of complaint themes extracted by NLP.
-    /// Example raw value: ["late_delivery","damaged_item","poor_packaging"]
-    /// Mapped as string to remain schema-agnostic; deserialize at usage site.
-    /// </summary>
     [Column("top_complaint_themes", TypeName = "jsonb")]
     public string? TopComplaintThemes { get; set; }
 
