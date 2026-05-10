@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MyPal.App")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+f1fd46d8e6ecb2cda6a1495dd8505590b9d9917e")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+978b2bc4bfb8d906cad8f2fad285908105b9ed5b")]
 [assembly: System.Reflection.AssemblyProductAttribute("MyPal.App")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MyPal.App")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
