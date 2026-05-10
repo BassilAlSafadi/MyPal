@@ -18,6 +18,7 @@ import {
   Globe
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import SellerAttitudeReport from "./Support/SellerAttitudeReport";
 
 interface ProductPreviewDrawerProps {
   product: SearchResult | null;
@@ -91,6 +92,11 @@ export const ProductPreviewDrawer = ({ product, isOpen, onClose }: ProductPrevie
                   ? "Verified internal listing. This item is ready for direct pickup or standard MyPal delivery. Inspection report indicates 98% quality match."
                   : "External match discovered via web agent. Price verified across 4 retailers. Significant savings identified compared to local retail average."}
               </p>
+            </div>
+
+            {/* Seller Attitude Report (if available) */}
+            <div className="mt-4">
+              <SellerAttitudeReport sellerId={product.seller} />
             </div>
 
             {/* Details List */}

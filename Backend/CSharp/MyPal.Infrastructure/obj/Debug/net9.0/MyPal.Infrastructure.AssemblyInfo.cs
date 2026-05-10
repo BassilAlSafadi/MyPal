@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MyPal.Infrastructure")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+cf220e8bf2c6e374a89739443844272af45174c0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ad29c366243334ce083062bd4b7d08f69a90fc96")]
 [assembly: System.Reflection.AssemblyProductAttribute("MyPal.Infrastructure")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MyPal.Infrastructure")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

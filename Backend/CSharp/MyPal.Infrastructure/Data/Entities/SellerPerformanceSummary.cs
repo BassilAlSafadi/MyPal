@@ -35,6 +35,9 @@ public class SellerPerformanceSummary
     [Precision(5, 4)]
     public decimal? SentimentScore { get; set; }
 
+    [Column("grandma_score")]
+    public int? GrandmaScore { get; set; }
+
     [Column("created_at", TypeName = "timestamp with time zone")]
     public DateTimeOffset? CreatedAt { get; set; }
 }
