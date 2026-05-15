@@ -25,6 +25,14 @@ if (POSTGRES_URL) {
 
 const mongoose = require('mongoose');
 const { AgentExecutionTrace, AgenticValidationLog } = require('./models');
+const {
+  runMyPalAgenticWorkflow,
+  fastSearchFeature,
+  translateText,
+  summarizeContent,
+  askProductExpert,
+  cleanScrapedContent,
+} = require('./agenticWorkflow');
 
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://localhost:27017/mypal_audit';
 mongoose.connect(MONGO_URL, { useNewUrlParser: true, useUnifiedTopology: true })
@@ -197,24 +205,26 @@ const crypto = require('crypto');
 app.post('/agent/orchestrate', async (req, res) => {
   const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
   const startTime = Date.now();
-  let provider = COHERE_API_KEY ? 'cohere' : (GEMINI_ENDPOINT ? 'gemini' : 'mock');
+  let provider = process.env.GITHUB_TOKEN ? 'notebook-graph' : 'mock-notebook-graph';
   let status = 'success';
   let out = null;
+  let reasoningSteps = [];
 
   try {
-    const prompt = `Orchestrate workflow: ${req.body.workflow}. Input: ${JSON.stringify(req.body.payload)}`;
-    if (provider === 'cohere') {
-      const r = await callCohere(prompt);
-      out = r?.generations?.[0]?.text;
-    } else if (provider === 'gemini') {
-      const r = await callGemini(prompt);
-      out = r?.content;
-    } else {
-      out = "Mock orchestration output";
-    }
+    const input = {
+      query: req.body.query || req.body.message || req.body.workflow,
+      workflow: req.body.workflow,
+      payload: req.body.payload,
+      user_location: req.body.user_location || req.body.location,
+      user_persona_bio: req.body.user_persona_bio || req.body.persona,
+    };
+    const result = await runMyPalAgenticWorkflow(input);
+    out = result.state.final_output;
+    reasoningSteps = result.trace;
   } catch (err) {
     status = 'error';
     out = String(err);
+    reasoningSteps = [{ step: 'agentic_workflow_error', result: out }];
   }
 
   const latencyMs = Date.now() - startTime;
@@ -225,17 +235,86 @@ app.post('/agent/orchestrate', async (req, res) => {
       trace_id: traceId,
       workflow: req.body.workflow || 'unknown',
       provider: provider,
-      model: 'default',
+      model: 'notebook-langgraph-port',
       latency_ms: latencyMs,
       status: status,
-      reasoning_steps: [{ step: 'orchestrate', result: out }]
+      reasoning_steps: reasoningSteps
     });
   } catch(e) {
     console.error('Failed to save AgentExecutionTrace', e);
   }
 
   if (status === 'error') return res.status(500).json({ error: out, trace_id: traceId });
-  return res.json({ result: out, trace_id: traceId });
+  return res.json({ result: out, trace_id: traceId, reasoning_steps: reasoningSteps });
+});
+
+app.post('/ai/deep-search', async (req, res) => {
+  const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
+  try {
+    const result = await runMyPalAgenticWorkflow(req.body || {});
+    return res.json({
+      result: result.state.final_output,
+      state: result.state,
+      reasoning_steps: result.trace,
+      trace_id: traceId
+    });
+  } catch (err) {
+    return res.status(500).json({ error: String(err), trace_id: traceId });
+  }
+});
+
+app.post('/ai/fast-search', async (req, res) => {
+  const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
+  try {
+    const result = await fastSearchFeature(req.body.query || '');
+    return res.json({ result, trace_id: traceId });
+  } catch (err) {
+    return res.status(500).json({ error: String(err), trace_id: traceId });
+  }
+});
+
+app.post('/ai/translate', async (req, res) => {
+  const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
+  try {
+    const result = await translateText(req.body.target_language, req.body.text);
+    return res.json({ result, trace_id: traceId });
+  } catch (err) {
+    return res.status(500).json({ error: String(err), trace_id: traceId });
+  }
+});
+
+app.post('/ai/summarize', async (req, res) => {
+  const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
+  try {
+    const result = await summarizeContent(req.body.text || '', req.body.length || 'medium');
+    return res.json({ result, trace_id: traceId });
+  } catch (err) {
+    return res.status(500).json({ error: String(err), trace_id: traceId });
+  }
+});
+
+app.post('/ai/product/ask', async (req, res) => {
+  const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
+  try {
+    const result = await askProductExpert({
+      question: req.body.question,
+      product_data: req.body.product_data,
+      persona: req.body.persona,
+    });
+    return res.json({ result, trace_id: traceId });
+  } catch (err) {
+    return res.status(500).json({ error: String(err), trace_id: traceId });
+  }
+});
+
+app.post('/ai/scraped/clean', async (req, res) => {
+  const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
+  try {
+    const result = await cleanScrapedContent(req.body.raw_text || '');
+    return res.json({ result, trace_id: traceId });
+  } catch (err) {
+    return res.status(500).json({ error: String(err), trace_id: traceId });
+  }
 });
 
 app.post('/seller/listing/analyze', async (req, res) => {
