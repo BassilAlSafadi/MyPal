@@ -95,11 +95,11 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	routing.Register(mux, cfg, db, readiness)
+	handler := routing.Register(mux, cfg, db, readiness)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,

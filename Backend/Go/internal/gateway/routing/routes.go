@@ -32,15 +32,14 @@ const gatewayVersion = "1.0.0-phase1"
 
 type ReadinessCheck func(ctx context.Context) error
 
-// Register wires all routes onto the given mux.
-// cfg provides all typed configuration needed by handlers and middleware.
-// db is the optional pgxpool connection (nil → search runs in degraded mode).
-func Register(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Pool, readiness ReadinessCheck) {
+func Register(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Pool, readiness ReadinessCheck) http.Handler {
 	middleware.ConfigureRateLimit(cfg.RateLimit.RequestsPerSecond, cfg.RateLimit.BurstSize)
 
-	// Strip inbound identity headers so clients cannot inject them.
-	// These headers are ONLY set by the Gateway after JWT validation.
-	mux.Handle("/", stripIdentityHeaders(buildRoutes(mux, cfg, db, readiness)))
+	// Build the routes and apply the global identity header stripper.
+	// This ensures no client-side spoofing can reach any upstream or internal logic.
+	handler := buildRoutes(mux, cfg, db, readiness)
+	
+	return stripIdentityHeaders(handler)
 }
 
 // stripIdentityHeaders removes X-User-* headers from all incoming requests
@@ -154,8 +153,10 @@ func buildRoutes(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Poo
 
 	// ----------------------------------------------------------------
 	// Auth routes → C# Main API  (public, no JWT required)
+	// Maps /api/v1/auth/login -> /api/auth/login on C#
 	// ----------------------------------------------------------------
-	mux.Handle("/api/v1/auth/", base(csharpProxy.Handler("/api/v1/auth")))
+	mux.Handle("/api/v1/auth/", base(csharpProxy.Handler("/api/v1")))
+
 
 	// ----------------------------------------------------------------
 	// User & profile routes → C# Main API  (authenticated)

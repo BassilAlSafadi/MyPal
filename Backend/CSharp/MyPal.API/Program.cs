@@ -39,6 +39,36 @@ app.MapGet("/", () => $"C# Backend running! Postgres Configured: {!string.IsNull
 
 // --- Auth Endpoints ---
 
+app.MapPost("/api/auth/signup", async (SignupRequest request, MyPalDbContext db, IJwtService jwtService) =>
+{
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
+    if (user != null) return Results.BadRequest("User already exists");
+
+    user = new User
+    {
+        Id = Guid.NewGuid(),
+        Email = request.Email,
+        FirstName = request.Name.Split(' ')[0],
+        LastName = request.Name.Contains(' ') ? request.Name.Split(' ')[1] : "",
+        IsBuyer = true,
+        Roles = ["buyer"]
+    };
+
+    db.Users.Add(user);
+    await db.SaveChangesAsync();
+    
+    var accessToken = jwtService.GenerateAccessToken(user);
+    var refreshToken = jwtService.GenerateRefreshToken();
+
+    return Results.Ok(new
+    {
+        user = new { user.Id, user.Email, user.IsBuyer, user.IsSeller, user.Roles },
+        access_token = accessToken,
+        refresh_token = refreshToken,
+        expires_in = 900
+    });
+});
+
 app.MapPost("/api/auth/login", async (LoginRequest request, MyPalDbContext db, IJwtService jwtService) =>
 {
     var user = await db.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
@@ -106,4 +136,5 @@ app.MapPost("/api/auth/logout", () => Results.Ok());
 app.Run();
 
 public record LoginRequest(string Email, string? Password);
+public record SignupRequest(string Email, string Password, string Name);
 public record RefreshRequest(string RefreshToken);
