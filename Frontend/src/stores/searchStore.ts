@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import { searchService } from '@/services/searchService';
+import type { SemanticSearchResult } from '../../../shared/contracts/search/contracts';
 
 export type SearchMode = 'internal' | 'global';
 
-export interface SearchResult {
+export interface SearchResult extends Partial<SemanticSearchResult> {
   id: string;
   title: string;
   price: number;
@@ -11,8 +12,6 @@ export interface SearchResult {
   source: 'external' | 'marketplace';
   seller: string;
   rating: number;
-  url?: string;
-  scrapedPrice?: number;
 }
 
 interface SearchState {
@@ -43,7 +42,14 @@ export const useSearchStore = create<SearchState>()((set, get) => ({
     try {
       if (mode === 'internal') {
         const results = await searchService.performInternalSearch(q);
-        set({ results: results as SearchResult[], isSearching: false });
+        const mapped = results.map(r => ({
+          ...r,
+          image: r.image_url || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=300&h=300&fit=crop',
+          source: 'marketplace',
+          seller: 'MyPal Verified',
+          rating: 4.5 + Math.random() * 0.5, // placeholder until reviews are joined
+        }));
+        set({ results: mapped as SearchResult[], isSearching: false });
       } else {
         const results = await searchService.performGlobalAgenticSearch(q, (log) => {
           set((state) => ({ consoleLogs: [...state.consoleLogs, log] }));

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Mail, Lock, ArrowRight, ShieldCheck } from 'lucide-react';
 import LogoIcon from '@/components/LogoIcon';
-import { firebaseAuthService } from '@/services/authService';
+import { authService } from '@/services/authService';
 
 const GoogleIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24">
@@ -30,10 +30,9 @@ const GoogleIcon = () => (
 
 const LoginScreen = () => {
   const navigate = useNavigate();
-  const setAuthenticatedUser = useAuthStore((s) => s.setAuthenticatedUser);
+  const { login, loginWithGoogle, isLoading } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const passwordChecks = useMemo(() => ({
@@ -44,31 +43,18 @@ const LoginScreen = () => {
 
   const canSubmit = email.includes('@') && passwordChecks.minLength && passwordChecks.hasNumber && passwordChecks.hasSpecial;
 
-  const handleGoogleLogin = async () => {
-    setLoading(true);
-    try {
-      const user = await firebaseAuthService.signInWithGoogle();
-      setAuthenticatedUser(user, user.isNewUser);
-      navigate('/home');
-    } catch (err) {
-      setError('Google sign-in failed');
-    } finally {
-      setLoading(false);
-    }
+  const handleGoogleLogin = () => {
+    loginWithGoogle();
   };
 
   const handleLogin = async () => {
     if (!canSubmit) return;
-    setLoading(true);
     setError('');
     try {
-      const user = await firebaseAuthService.signInWithEmail(email, password);
-      setAuthenticatedUser(user, user.isNewUser);
+      await login(email, password);
       navigate('/home');
-    } catch (err) {
-      setError('Invalid email or password');
-    } finally {
-      setLoading(false);
+    } catch (err: any) {
+      setError(err.message || 'Invalid email or password');
     }
   };
 
@@ -86,7 +72,7 @@ const LoginScreen = () => {
         <Button
           onClick={handleGoogleLogin}
           variant="outline"
-          disabled={loading}
+          disabled={isLoading}
           className="w-full h-12 gap-3 text-foreground border-border hover:bg-secondary"
         >
           <GoogleIcon />
@@ -158,10 +144,10 @@ const LoginScreen = () => {
           
           <Button
             onClick={handleLogin}
-            disabled={!canSubmit || loading}
+            disabled={!canSubmit || isLoading}
             className="w-full bg-gradient-cobalt hover:opacity-90 text-primary-foreground h-12 rounded-xl gap-2 shadow-lg shadow-cobalt/20"
           >
-            {loading ? 'Authenticating...' : 'Sign In'} <ArrowRight className="w-4 h-4" />
+            {isLoading ? 'Authenticating...' : 'Sign In'} <ArrowRight className="w-4 h-4" />
           </Button>
         </div>
 

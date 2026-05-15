@@ -8,12 +8,12 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json({ limit: '1mb' }));
 
-const PORT = process.env.PORT || 5002;
+const PORT = process.env.NODE_ORCHESTRATOR_PORT || 5002;
 
 const COHERE_API_KEY = process.env.COHERE_API_KEY || null;
-const GEMINI_ENDPOINT = process.env.GEMINI_ENDPOINT || null; // e.g. custom gateway
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || null;
-const PRODBERT_URL = process.env.PRODBERT_URL || `http://localhost:${process.env.PRODBERT_PORT || 8001}`;
+const GEMINI_ENDPOINT = process.env.GEMINI_ENDPOINT || null; 
+const PRODBERT_URL = process.env.PRODBERT_URL || `http://localhost:8001`;
 const POSTGRES_URL = process.env.POSTGRES_URL || null;
 
 const { Pool } = require('pg');
@@ -22,6 +22,14 @@ if (POSTGRES_URL) {
   pgPool = new Pool({ connectionString: POSTGRES_URL });
   pgPool.on('error', (err) => console.error('Postgres pool error', err));
 }
+
+const mongoose = require('mongoose');
+const { AgentExecutionTrace, AgenticValidationLog } = require('./models');
+
+const MONGO_URL = process.env.MONGO_URL || 'mongodb://localhost:27017/mypal_audit';
+mongoose.connect(MONGO_URL, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('Connected to MongoDB audit store'))
+  .catch(err => console.error('MongoDB connection error:', err));
 
 async function callCohere(prompt, options = {}){
   if(!COHERE_API_KEY) throw new Error('COHERE_API_KEY not set');
@@ -179,6 +187,113 @@ app.post('/summaries/reduce', async (req, res) => {
 });
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
+// ----------------------------------------------------------------------
+// PHASE 3: AI-ASSISTED SELLER WORKFLOWS & ORCHESTRATION
+// ----------------------------------------------------------------------
+
+const crypto = require('crypto');
+
+app.post('/agent/orchestrate', async (req, res) => {
+  const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
+  const startTime = Date.now();
+  let provider = COHERE_API_KEY ? 'cohere' : (GEMINI_ENDPOINT ? 'gemini' : 'mock');
+  let status = 'success';
+  let out = null;
+
+  try {
+    const prompt = `Orchestrate workflow: ${req.body.workflow}. Input: ${JSON.stringify(req.body.payload)}`;
+    if (provider === 'cohere') {
+      const r = await callCohere(prompt);
+      out = r?.generations?.[0]?.text;
+    } else if (provider === 'gemini') {
+      const r = await callGemini(prompt);
+      out = r?.content;
+    } else {
+      out = "Mock orchestration output";
+    }
+  } catch (err) {
+    status = 'error';
+    out = String(err);
+  }
+
+  const latencyMs = Date.now() - startTime;
+
+  // Audit trace in MongoDB
+  try {
+    await AgentExecutionTrace.create({
+      trace_id: traceId,
+      workflow: req.body.workflow || 'unknown',
+      provider: provider,
+      model: 'default',
+      latency_ms: latencyMs,
+      status: status,
+      reasoning_steps: [{ step: 'orchestrate', result: out }]
+    });
+  } catch(e) {
+    console.error('Failed to save AgentExecutionTrace', e);
+  }
+
+  if (status === 'error') return res.status(500).json({ error: out, trace_id: traceId });
+  return res.json({ result: out, trace_id: traceId });
+});
+
+app.post('/seller/listing/analyze', async (req, res) => {
+  const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
+  const startTime = Date.now();
+  const { title, description, category, price } = req.body;
+  let status = 'success';
+  let out = null;
+
+  try {
+    const prompt = `Analyze this product listing for completeness, policy violations, and SEO:
+Title: ${title}
+Desc: ${description}
+Category: ${category}
+Price: ${price}
+Return a JSON with "is_valid" (boolean), "confidence_score" (0-1), "suggestions" (array), "flags" (array).`;
+    
+    let rawResult = null;
+    if (COHERE_API_KEY) {
+      const r = await callCohere(prompt);
+      rawResult = r?.generations?.[0]?.text;
+    } else if (GEMINI_ENDPOINT) {
+      const r = await callGemini(prompt);
+      rawResult = r?.content;
+    } else {
+      rawResult = '{"is_valid": true, "confidence_score": 0.9, "suggestions": [], "flags": []}';
+    }
+    
+    out = safeParseJSON(rawResult) || { is_valid: true, confidence_score: 0.5, suggestions: [], flags: [] };
+  } catch (err) {
+    status = 'error';
+    out = { is_valid: false, confidence_score: 0, suggestions: [], flags: ['Analysis failed'] };
+  }
+
+  try {
+    await AgenticValidationLog.create({
+      trace_id: traceId,
+      entity_id: req.body.listing_id || 'new',
+      entity_type: 'listing',
+      validation_result: out.is_valid,
+      notes: JSON.stringify(out)
+    });
+  } catch(e) {
+    console.error('Failed to save AgenticValidationLog', e);
+  }
+
+  res.json({ ...out, trace_id: traceId });
+});
+
+app.post('/seller/report/generate', async (req, res) => {
+  const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
+  // Simplified for Phase 3. Real impl would fetch metrics from Postgres and summarize.
+  res.json({
+    report_url: 'https://mypal.app/reports/demo.pdf',
+    summary: 'Report generated successfully.',
+    trace_id: traceId
+  });
+});
 
 app.listen(PORT, () => console.log(`LLM orchestrator listening on ${PORT}`));
 

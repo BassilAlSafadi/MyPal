@@ -10,17 +10,59 @@ services:
     environment:
       - POSTGRES_URL=${POSTGRES_URL}
       - MONGO_URI=${MONGO_URI}
-      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_URL=${REDIS_URL}
       - JWT_SECRET=${JWT_SECRET}
+      - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   csharp-backend:
     build: 
-      context: ../src/MyPal.Backend.CSharp
+      context: ../Backend/CSharp/MyPal.API
       dockerfile: Dockerfile
     ports:
       - "5000:8080"
     environment:
       - POSTGRES_URL=${POSTGRES_URL}
       - MONGO_URI=${MONGO_URI}
-      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_URL=${REDIS_URL}
       - JWT_SECRET=${JWT_SECRET}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  node-orchestrator:
+    build:
+      context: ../Backend/Node
+    ports:
+      - "5002:5002"
+    environment:
+      - NODE_ORCHESTRATOR_PORT=5002
+      - COHERE_API_KEY=${COHERE_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - PRODBERT_URL=http://python-prodbert:8001
+      - POSTGRES_URL=${POSTGRES_URL}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  python-prodbert:
+    build:
+      context: ../Backend/Python
+    ports:
+      - "8001:8001"
+    environment:
+      - PRODBERT_PORT=8001
+      - PRODBERT_MODEL=${PRODBERT_MODEL}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

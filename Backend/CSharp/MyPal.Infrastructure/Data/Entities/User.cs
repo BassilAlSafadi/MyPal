@@ -36,6 +36,15 @@ public class User
     [Column("is_deleted")]
     public bool? IsDeleted { get; set; }
 
+    [Column("is_buyer")]
+    public bool IsBuyer { get; set; } = true;
+
+    [Column("is_seller")]
+    public bool IsSeller { get; set; } = false;
+
+    [Column("roles")]
+    public string[] Roles { get; set; } = ["buyer"];
+
     // -------------------------------------------------------------------------
     // Google Maps location — the user's current saved delivery address.
     // These values are snapshotted into Order.Destination* at CreateOrder time

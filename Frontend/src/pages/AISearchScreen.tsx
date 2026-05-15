@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { mockProducts, type Product } from '@/mock/products';
 import { Send, Sparkles, RotateCcw, Globe, ExternalLink, Heart } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -27,55 +26,9 @@ const mockSources = [
   { name: 'PCMag', url: 'https://pcmag.com' },
 ];
 
-const generateMockResponse = (query: string): Omit<Message, 'id' | 'timestamp'> => {
-  const q = query.toLowerCase();
-  
-  // Find matching products
-  const matchingProducts = mockProducts.filter(p => 
-    p.title.toLowerCase().includes(q) ||
-    p.description.toLowerCase().includes(q) ||
-    p.category.toLowerCase().includes(q) ||
-    (p.brand && p.brand.toLowerCase().includes(q))
-  ).slice(0, 3);
+import { searchService } from '@/services/searchService';
+import type { Product } from '@/mock/products';
 
-  // Generate contextual summary
-  let summary = '';
-  if (matchingProducts.length > 0) {
-    const avgPrice = matchingProducts.reduce((sum, p) => sum + p.price, 0) / matchingProducts.length;
-    const topRated = matchingProducts.reduce((best, p) => p.rating > best.rating ? p : best);
-    summary = `Based on your search for "${query}", I found ${matchingProducts.length} relevant products. ` +
-      `Prices range from $${Math.min(...matchingProducts.map(p => p.price))} to $${Math.max(...matchingProducts.map(p => p.price))}. ` +
-      `The top-rated option is the ${topRated.title} with ${topRated.rating} stars from ${topRated.reviewCount.toLocaleString()} reviews.`;
-  } else {
-    // Fallback with random products
-    const randomProducts = [...mockProducts].sort(() => Math.random() - 0.5).slice(0, 3);
-    summary = `I couldn't find exact matches for "${query}", but here are some popular products you might like. ` +
-      `These are trending items with excellent ratings and competitive prices.`;
-    return {
-      type: 'ai',
-      content: summary,
-      products: randomProducts,
-      sources: mockSources.sort(() => Math.random() - 0.5).slice(0, 3),
-      suggestions: [
-        'Show me budget options',
-        'What are the top brands?',
-        'Compare with alternatives',
-      ],
-    };
-  }
-
-  return {
-    type: 'ai',
-    content: summary,
-    products: matchingProducts,
-    sources: mockSources.sort(() => Math.random() - 0.5).slice(0, 3),
-    suggestions: [
-      `More ${matchingProducts[0]?.category || 'products'} options`,
-      'Compare prices across sellers',
-      'Show refurbished alternatives',
-    ],
-  };
-};
 
 const AISearchScreen = () => {
   const navigate = useNavigate();
@@ -93,7 +46,7 @@ const AISearchScreen = () => {
     scrollToBottom();
   }, [messages]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim()) return;
 
     const userMessage: Message = {
@@ -104,20 +57,43 @@ const AISearchScreen = () => {
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    const currentInput = input.trim();
     setInput('');
     setIsTyping(true);
 
-    // Simulate AI processing
-    setTimeout(() => {
-      const response = generateMockResponse(userMessage.content);
+    try {
+      const results = await searchService.performGlobalAgenticSearch(currentInput, (log) => {
+        // Option: show progress logs in the UI
+        console.log(`[AI Progress] ${log}`);
+      });
+
       const aiMessage: Message = {
-        id: `msg-${Date.now()}`,
-        ...response,
+        id: `msg-ai-${Date.now()}`,
+        type: 'ai',
+        content: results.length > 0 
+          ? `I found ${results.length} relevant products for you based on your request.`
+          : `I couldn't find exact matches for "${currentInput}", but here are some suggestions.`,
+        products: results,
+        timestamp: new Date(),
+        suggestions: [
+          'Compare these options',
+          'Show cheaper alternatives',
+          'Tell me more about the first one'
+        ]
+      };
+      
+      setMessages((prev) => [...prev, aiMessage]);
+    } catch (err) {
+      const errorMessage: Message = {
+        id: `msg-err-${Date.now()}`,
+        type: 'ai',
+        content: 'I encountered an error while searching. Please try again in a moment.',
         timestamp: new Date(),
       };
-      setMessages((prev) => [...prev, aiMessage]);
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
       setIsTyping(false);
-    }, 1200);
+    }
   };
 
   const handleSuggestionClick = (suggestion: string) => {

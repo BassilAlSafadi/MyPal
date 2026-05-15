@@ -1,39 +1,60 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-
-export interface PersonaProfile {
-  interests: string[];
-  categoryAffinity: Record<string, number>;
-  aiContextPreferences: string[];
-}
-
-interface User {
-  uid: string;
-  email: string;
-  displayName?: string;
-}
+import { UserIdentity } from '../../../shared/contracts/auth/identity';
+import { authService } from '@/services/authService';
 
 interface AuthState {
-  user: User | null;
-  needsOnboarding: boolean;
-  persona: PersonaProfile | null;
-  setAuthenticatedUser: (user: User, isNewUser: boolean) => void;
-  completeOnboarding: (profile: PersonaProfile) => void;
-  logout: () => void;
+  user: UserIdentity | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  error: string | null;
+
+  login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: () => void;
+  logout: () => Promise<void>;
+  setUser: (user: UserIdentity | null) => void;
+  clearError: () => void;
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       user: null,
-      needsOnboarding: false,
-      persona: null,
-      setAuthenticatedUser: (user, isNewUser) => 
-        set({ user, needsOnboarding: isNewUser }),
-      completeOnboarding: (persona) => 
-        set({ persona, needsOnboarding: false }),
-      logout: () => set({ user: null, persona: null, needsOnboarding: false }),
+      isAuthenticated: false,
+      isLoading: false,
+      error: null,
+
+      setUser: (user) => set({ user, isAuthenticated: !!user }),
+
+      login: async (email, password) => {
+        set({ isLoading: true, error: null });
+        try {
+          const user = await authService.signInWithEmail(email, password);
+          set({ user, isAuthenticated: true, isLoading: false });
+        } catch (err: any) {
+          set({ error: err.message || 'Login failed', isLoading: false });
+          throw err;
+        }
+      },
+
+      loginWithGoogle: () => {
+        authService.loginWithGoogle();
+      },
+
+      logout: async () => {
+        set({ isLoading: true });
+        try {
+          await authService.signOut();
+        } finally {
+          set({ user: null, isAuthenticated: false, isLoading: false });
+        }
+      },
+
+      clearError: () => set({ error: null }),
     }),
-    { name: 'mypal-auth-v2' }
+    {
+      name: 'mypal-auth',
+      partialize: (state) => ({ user: state.user, isAuthenticated: state.isAuthenticated }),
+    }
   )
 );

@@ -13,6 +13,7 @@ import AISearchScreen from "./pages/AISearchScreen";
 import WishlistScreen from "./pages/WishlistScreen";
 import WalletScreen from "./pages/WalletScreen";
 import SettingsScreen from "./pages/SettingsScreen";
+import AuthCallback from "./pages/AuthCallback";
 import NotFound from "./pages/NotFound";
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -31,6 +32,7 @@ const App = () => (
         <Route path="/" element={<SplashScreen />} />
         <Route path="/login" element={<LoginScreen />} />
         <Route path="/signup" element={<SignupScreen />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/home" element={<ProtectedRoute><HomeScreen /></ProtectedRoute>} />
         <Route path="/search" element={<ProtectedRoute><SearchScreen /></ProtectedRoute>} />
         <Route path="/ai-search" element={<ProtectedRoute><AISearchScreen /></ProtectedRoute>} />

@@ -31,13 +31,15 @@ public class MyPalDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<UserAlgorithmSteering> UserAlgorithmSteerings => Set<UserAlgorithmSteering>();
     public DbSet<Vendor> Vendors => Set<Vendor>();
+    public DbSet<OutboxEvent> OutboxEvents => Set<OutboxEvent>();
+    public DbSet<ProcessedEvent> ProcessedEvents => Set<ProcessedEvent>();
+    public DbSet<SagaStateEntity> SagaStates => Set<SagaStateEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
         
-        modelBuilder.Entity<MyPalProduct>()
-        .HasBaseType<Product>();
+        // base type configuration removed
 
     // --- NEW CONFIGURATIONS ---
     modelBuilder.Entity<MyPalProduct>()
@@ -56,6 +58,44 @@ public class MyPalDbContext : DbContext
         .HasColumnName("last_verified_at")
         .HasColumnType("timestamp without time zone")
         .IsRequired(false);
+        
+        modelBuilder.Entity<OutboxEvent>()
+            .ToTable("outbox_events", table =>
+                table.HasCheckConstraint(
+                    "CK_outbox_events_publish_status",
+                    "publish_status IN ('pending', 'publishing', 'published', 'failed')"))
+            .HasKey(x => x.Id);
+
+        modelBuilder.Entity<OutboxEvent>()
+            .Property(x => x.Payload)
+            .HasColumnType("jsonb");
+
+        modelBuilder.Entity<OutboxEvent>()
+            .Property(x => x.CreatedAt)
+            .HasDefaultValueSql("now()");
+
+        modelBuilder.Entity<OutboxEvent>()
+            .Property(x => x.UpdatedAt)
+            .HasDefaultValueSql("now()");
+
+        modelBuilder.Entity<OutboxEvent>()
+            .Property(x => x.PublishStatus)
+            .HasDefaultValue("pending");
+
+        modelBuilder.Entity<OutboxEvent>()
+            .Property(x => x.PublishAttempts)
+            .HasDefaultValue(0);
+
+        modelBuilder.Entity<OutboxEvent>()
+            .HasIndex(x => new { x.PublishStatus, x.CreatedAt })
+            .HasDatabaseName("IX_outbox_events_publish_status_created_at");
+
+        modelBuilder.Entity<ProcessedEvent>()
+            .HasKey(x => new { x.EventId, x.Consumer });
+
+        modelBuilder.Entity<SagaStateEntity>()
+            .Property(x => x.RetryCount)
+            .HasDefaultValue(0);
         
         modelBuilder.Entity<Cart>()
             .HasMany(x => x.CartItems)
@@ -271,4 +311,3 @@ public class MyPalDbContext : DbContext
         _        => throw new ArgumentOutOfRangeException(nameof(value), value, $"Unknown payment_method: '{value}'"),
     };
 }
-
