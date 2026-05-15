@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Mail, Lock, ArrowRight, ShieldCheck, User } from 'lucide-react';
 import LogoIcon from '@/components/LogoIcon';
-import { firebaseAuthService } from '@/services/authService';
+import { authService } from '@/services/authService';
 
 const GoogleIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24">
@@ -30,7 +30,7 @@ const GoogleIcon = () => (
 
 const SignupScreen = () => {
   const navigate = useNavigate();
-  const setAuthenticatedUser = useAuthStore((s) => s.setAuthenticatedUser);
+  const setUser = useAuthStore((s) => s.setUser);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -45,17 +45,8 @@ const SignupScreen = () => {
 
   const canSubmit = name.length > 1 && email.includes('@') && passwordChecks.minLength && passwordChecks.hasNumber && passwordChecks.hasSpecial;
 
-  const handleGoogleSignup = async () => {
-    setLoading(true);
-    try {
-      const user = await firebaseAuthService.signInWithGoogle();
-      setAuthenticatedUser(user, user.isNewUser);
-      navigate('/home');
-    } catch (err) {
-      setError('Google sign-up failed');
-    } finally {
-      setLoading(false);
-    }
+  const handleGoogleSignup = () => {
+    authService.loginWithGoogle();
   };
 
   const handleSignup = async () => {
@@ -63,8 +54,8 @@ const SignupScreen = () => {
     setLoading(true);
     setError('');
     try {
-      const user = await firebaseAuthService.signUpWithEmail(email, password);
-      setAuthenticatedUser(user, true); // Forced true for signup
+      const user = await authService.signUpWithEmail(email, password);
+      setUser(user); 
       navigate('/home');
     } catch (err) {
       setError('Failed to create account');

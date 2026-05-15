@@ -25,9 +25,19 @@ export const authService = {
     });
 
     tokenStore.set(response.access_token);
-    // Refresh token is handled by the browser via HttpOnly cookies (in production)
-    // or manually if stored in a secure way.
-    
+    return response.user;
+  },
+
+  /**
+   * New user registration.
+   */
+  signUpWithEmail: async (email: string, password: string): Promise<UserIdentity> => {
+    const response = await apiClient.post<LoginResponse>('/api/v1/auth/signup', {
+      email,
+      password,
+    });
+
+    tokenStore.set(response.access_token);
     return response.user;
   },
 
