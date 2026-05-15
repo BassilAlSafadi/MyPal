@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { SearchResult } from '@/stores/searchStore';
 
 interface ProductCardProps {
-  product: SearchResult;
+  product: Partial<SearchResult> & { seller?: { name: string; isMyPal: boolean; trustScore?: number; trustTier?: "new" | "rising" | "trusted" | "top" | "elite" } };
   onClick?: () => void;
 }
 
@@ -86,7 +86,7 @@ export const ProductCard = ({ product, onClick }: ProductCardProps) => {
             {product.title}
           </h3>
           <div className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-            {product.seller}
+            {product.seller?.name}
             {!isInternal && <ExternalLink className="w-2.5 h-2.5" />}
           </div>
         </div>

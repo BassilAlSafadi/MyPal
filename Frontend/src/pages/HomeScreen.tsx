@@ -14,6 +14,7 @@ import LogoIcon from '@/components/LogoIcon';
 import { useState, useEffect, useRef } from 'react';
 import { useSearchStore } from '@/stores/searchStore';
 import { cn } from '@/lib/utils';
+import { useMemo } from 'react';
 
 const categories = [
   { name: 'Electronics', icon: Smartphone, color: 'bg-blue-500/10 text-blue-500' },
@@ -57,18 +58,20 @@ const HomeScreen = () => {
     }
   };
 
-  const trendingProducts = [...mockProducts]
-    .sort((a, b) => b.rating - a.rating)
-    .slice(0, 6);
+  const trendingProducts = useMemo(() => {
+    return [...mockProducts].sort((a, b) => b.rating - a.rating).slice(0, 6);
+  }, [mockProducts]);
 
-  const recommendedProducts = [...mockProducts]
-    .sort(() => Math.random() - 0.5)
-    .slice(0, 4);
+  const recommendedProducts = useMemo(() => {
+    return [...mockProducts].sort(() => Math.random() - 0.5).slice(0, 4);
+  }, [mockProducts]);
 
-  const recentlyViewedProducts = recentViews
-    .map(id => mockProducts.find(p => p.id === id))
-    .filter(Boolean)
-    .slice(0, 6) as typeof mockProducts;
+  const recentlyViewedProducts = useMemo(() => {
+    return recentViews
+      .map(id => mockProducts.find(p => p.id === id))
+      .filter(Boolean)
+      .slice(0, 6) as typeof mockProducts;
+  }, [recentViews, mockProducts]);
 
   return (
     <div className="min-h-screen bg-background pb-24">
