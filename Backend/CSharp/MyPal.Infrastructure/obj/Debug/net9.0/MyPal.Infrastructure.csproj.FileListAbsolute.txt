@@ -24,3 +24,16 @@ G:/MyPal/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/ref/MyPal.In
 /home/solly/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/refint/MyPal.Infrastructure.dll
 /home/solly/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/MyPal.Infrastructure.pdb
 /home/solly/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/ref/MyPal.Infrastructure.dll
+/workspaces/MyPal/Backend/CSharp/MyPal.Infrastructure/bin/Debug/net9.0/MyPal.Infrastructure.deps.json
+/workspaces/MyPal/Backend/CSharp/MyPal.Infrastructure/bin/Debug/net9.0/MyPal.Infrastructure.dll
+/workspaces/MyPal/Backend/CSharp/MyPal.Infrastructure/bin/Debug/net9.0/MyPal.Infrastructure.pdb
+/workspaces/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/MyPal.Infrastructure.csproj.AssemblyReference.cache
+/workspaces/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/MyPal.Infrastructure.GeneratedMSBuildEditorConfig.editorconfig
+/workspaces/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/MyPal.Infrastructure.AssemblyInfoInputs.cache
+/workspaces/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/MyPal.Infrastructure.AssemblyInfo.cs
+/workspaces/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/MyPal.Infrastructure.csproj.CoreCompileInputs.cache
+/workspaces/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/MyPal.Infrastructure.sourcelink.json
+/workspaces/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/MyPal.Infrastructure.dll
+/workspaces/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/refint/MyPal.Infrastructure.dll
+/workspaces/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/MyPal.Infrastructure.pdb
+/workspaces/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/ref/MyPal.Infrastructure.dll

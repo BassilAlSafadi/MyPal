@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MyPal.API")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+88f2132ad41f0b241e853341859acafb6cc6cbbe")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+0d7f480c116d7d1f58f128f547a8f57120b700a9")]
 [assembly: System.Reflection.AssemblyProductAttribute("MyPal.API")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MyPal.API")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

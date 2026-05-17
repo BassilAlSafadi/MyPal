@@ -1,12 +1,1 @@
-{
-  "Version": 1,
-  "Hash": "qV2HwSUkEuGaTjvi604S8JENoMdMEcYfXj6/MGI5c7o=",
-  "Source": "MyPal.API",
-  "BasePath": "_content/MyPal.API",
-  "Mode": "Default",
-  "ManifestType": "Build",
-  "ReferencedProjectsConfiguration": [],
-  "DiscoveryPatterns": [],
-  "Assets": [],
-  "Endpoints": []
-}
+{"Version":1,"Hash":"E6QEMN7eCU9Ukim0pr/QLJW0W1zff6tOwFaQ4UPIdNo=","Source":"MyPal.API","BasePath":"/","Mode":"Root","ManifestType":"Build","ReferencedProjectsConfiguration":[],"DiscoveryPatterns":[],"Assets":[],"Endpoints":[]}
