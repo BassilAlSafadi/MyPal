@@ -14,8 +14,8 @@ export const SERVICE_DISCOVERY = {
   },
   NODE_ORCHESTRATOR: {
     host: 'localhost',
-    port: 5002,
-    url: process.env.NODE_ORCHESTRATOR_URL || 'http://localhost:5002',
+    port: 5003,
+    url: process.env.NODE_ORCHESTRATOR_URL || 'http://localhost:5003',
   },
   PRODBERT: {
     host: 'localhost',

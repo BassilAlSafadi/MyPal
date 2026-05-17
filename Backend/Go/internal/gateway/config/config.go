@@ -69,7 +69,7 @@ func Load() (*GatewayConfig, error) {
 		Upstreams: Upstreams{
 			CSharpMainAPI:    getEnv("CSHARP_MAIN_API_URL", "http://localhost:5000"),
 			GoSupportService: getEnv("GO_SUPPORT_URL", "http://localhost:5001"),
-			NodeOrchestrator: getEnv("NODE_ORCHESTRATOR_URL", "http://localhost:5002"),
+			NodeOrchestrator: getEnv("NODE_ORCHESTRATOR_URL", "http://localhost:5003"),
 			PythonProdBERT:   getEnv("PRODBERT_URL", "http://localhost:8001"),
 		},
 		Auth: AuthConfig{

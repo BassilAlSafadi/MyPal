@@ -8,7 +8,7 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json({ limit: '1mb' }));
 
-const PORT = process.env.NODE_ORCHESTRATOR_PORT || 5002;
+const PORT = process.env.NODE_ORCHESTRATOR_PORT || 5003;
 
 const COHERE_API_KEY = process.env.COHERE_API_KEY || null;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || null;
@@ -35,7 +35,7 @@ const {
 } = require('./agenticWorkflow');
 
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://localhost:27017/mypal_audit';
-mongoose.connect(MONGO_URL, { useNewUrlParser: true, useUnifiedTopology: true })
+mongoose.connect(MONGO_URL)
   .then(() => console.log('Connected to MongoDB audit store'))
   .catch(err => console.error('MongoDB connection error:', err));
 

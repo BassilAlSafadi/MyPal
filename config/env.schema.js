@@ -24,7 +24,7 @@ const getEnv = (key, fallback) => process.env[key] || fallback;
 const config = {
   GO_GATEWAY_URL: getEnv('GO_GATEWAY_URL', 'http://localhost:8080'),
   GO_SUPPORT_URL: getEnv('GO_SUPPORT_URL', 'http://localhost:5001'),
-  NODE_ORCHESTRATOR_URL: getEnv('NODE_ORCHESTRATOR_URL', 'http://localhost:5002'),
+  NODE_ORCHESTRATOR_URL: getEnv('NODE_ORCHESTRATOR_URL', 'http://localhost:5003'),
   PRODBERT_URL: getEnv('PRODBERT_URL', 'http://localhost:8001'),
   CSHARP_MAIN_API_URL: getEnv('CSHARP_MAIN_API_URL', 'http://localhost:5000'),
   
