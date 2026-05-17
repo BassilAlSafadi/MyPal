@@ -48,8 +48,8 @@ export const searchService = {
 
       onProgress("Finalizing semantic recommendations...");
       
-      // Return a structured response (this will be refined in Phase 3/4)
-      return mapResponse.results || [
+      const results = mapResponse.results || mapResponse.summaries || [];
+      return results.length > 0 ? results : [
         { id: 'e1', title: 'MacBook Pro 14" M4 Pro', price: 1999, image: 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=300&h=300&fit=crop', source: 'external', seller: 'Amazon', rating: 4.8, url: 'https://amazon.com' },
         { id: 'e2', title: 'Samsung Galaxy S25 Ultra', price: 1299, image: 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=300&h=300&fit=crop', source: 'external', seller: 'Best Buy', rating: 4.7, url: 'https://bestbuy.com' },
       ];

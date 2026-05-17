@@ -103,20 +103,43 @@ async function gatewayFetch<T>(
     });
   }
 
-  const body: APIResponse<T> = await response.json().catch(() => ({
-    success: false,
-    error: { code: 'PARSE_ERROR', message: 'Invalid response from gateway', trace_id: traceId },
-  }));
+  let body: unknown = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
 
-  if (!response.ok || !body.success) {
-    throw new GatewayError(response.status, body.error ?? {
+  const isWrappedEnvelope = body && typeof body === 'object' && 'success' in body;
+
+  if (!response.ok) {
+    const errorBody = body && typeof body === 'object' ? (body as any) : {};
+    const error = errorBody.error ?? {
       code: 'UNKNOWN',
-      message: 'An unknown error occurred',
+      message: errorBody.message || response.statusText || 'An unknown error occurred',
       trace_id: traceId,
+    };
+
+    throw new GatewayError(response.status, {
+      code: error.code || 'UNKNOWN',
+      message: error.message || response.statusText || 'An unknown error occurred',
+      trace_id: error.trace_id || traceId,
     });
   }
 
-  return body.data as T;
+  if (isWrappedEnvelope) {
+    const envelope = body as APIResponse<T>;
+    if (!envelope.success) {
+      throw new GatewayError(response.status, envelope.error ?? {
+        code: 'UNKNOWN',
+        message: 'An unknown error occurred',
+        trace_id: traceId,
+      });
+    }
+    return envelope.data as T;
+  }
+
+  return body as T;
 }
 
 // ──────────────────────────────────────────

@@ -54,8 +54,8 @@ const SignupScreen = () => {
     setLoading(true);
     setError('');
     try {
-      const user = await authService.signUpWithEmail(email, password);
-      setUser(user); 
+      const user = await authService.signUpWithEmail(email, password, name);
+      setUser(user);
       navigate('/home');
     } catch (err) {
       setError('Failed to create account');

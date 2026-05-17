@@ -67,7 +67,7 @@ func Load() (*GatewayConfig, error) {
 			Default:          getEnvDuration("TIMEOUT_DEFAULT_MS", 10000),
 		},
 		Upstreams: Upstreams{
-			CSharpMainAPI:    getEnv("CSHARP_MAIN_API_URL", "http://localhost:5000"),
+			CSharpMainAPI:    getEnv("CSHARP_MAIN_API_URL", "http://localhost:5000/api"),
 			GoSupportService: getEnv("GO_SUPPORT_URL", "http://localhost:5001"),
 			NodeOrchestrator: getEnv("NODE_ORCHESTRATOR_URL", "http://localhost:5003"),
 			PythonProdBERT:   getEnv("PRODBERT_URL", "http://localhost:8001"),

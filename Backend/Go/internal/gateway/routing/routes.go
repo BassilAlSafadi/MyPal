@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"mypal/api/go/internal/gateway/auth"
 	gconfig "mypal/api/go/internal/gateway/config"
 	"mypal/api/go/internal/gateway/middleware"
@@ -26,6 +25,8 @@ import (
 	"mypal/api/go/internal/gateway/responses"
 	"mypal/api/go/internal/gateway/search"
 	"mypal/api/go/internal/gateway/tracing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const gatewayVersion = "1.0.0-phase1"
@@ -38,7 +39,7 @@ func Register(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Pool, 
 	// Build the routes and apply the global identity header stripper.
 	// This ensures no client-side spoofing can reach any upstream or internal logic.
 	handler := buildRoutes(mux, cfg, db, readiness)
-	
+
 	return stripIdentityHeaders(handler)
 }
 
@@ -157,21 +158,20 @@ func buildRoutes(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Poo
 	// ----------------------------------------------------------------
 	mux.Handle("/api/v1/auth/", base(csharpProxy.Handler("/api/v1")))
 
-
 	// ----------------------------------------------------------------
 	// User & profile routes → C# Main API  (authenticated)
 	// ----------------------------------------------------------------
-	mux.Handle("/api/v1/users/", authenticated(csharpProxy.Handler("/api/v1/users")))
+	mux.Handle("/api/v1/users/", authenticated(csharpProxy.Handler("/api/v1")))
 
 	// ----------------------------------------------------------------
 	// Products & inventory → C# Main API  (authenticated)
 	// ----------------------------------------------------------------
-	mux.Handle("/api/v1/products/", authenticated(csharpProxy.Handler("/api/v1/products")))
+	mux.Handle("/api/v1/products/", authenticated(csharpProxy.Handler("/api/v1")))
 
 	// ----------------------------------------------------------------
 	// Orders & checkout → C# Main API  (authenticated)
 	// ----------------------------------------------------------------
-	mux.Handle("/api/v1/orders/", authenticated(csharpProxy.Handler("/api/v1/orders")))
+	mux.Handle("/api/v1/orders/", authenticated(csharpProxy.Handler("/api/v1")))
 
 	// ----------------------------------------------------------------
 	// Semantic Search (orchestrated)  → searchStack → ProdBERT + pgvector
@@ -189,7 +189,9 @@ func buildRoutes(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Poo
 	// AI & LLM Orchestration → Node Orchestrator  (authenticated)
 	// ----------------------------------------------------------------
 	mux.Handle("/api/v1/ai/", authenticated(nodeProxy.Handler("/api/v1/ai")))
-	mux.Handle("/api/v1/seller-report/", authenticated(nodeProxy.Handler("/api/v1/seller-report")))
+	mux.Handle("/api/v1/seller/report/", authenticated(nodeProxy.Handler("/api/v1")))
+	mux.Handle("/api/v1/seller-report/", authenticated(nodeProxy.Handler("/api/v1")))
+	mux.Handle("/api/v1/seller/listing/", authenticated(nodeProxy.Handler("/api/v1")))
 
 	// ----------------------------------------------------------------
 	// Support / realtime → Go Support  (authenticated)

@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils';
 const SettingsScreen = () => {
   const navigate = useNavigate();
   const { theme, setTheme, resolvedTheme } = useTheme();
-  const { phone, userName, logout } = useAuthStore();
+  const { user, logout } = useAuthStore();
   const { notifications, updateNotificationPref, clearSearchHistory } = useMockStore();
 
   const handleLogout = () => {
@@ -71,8 +71,8 @@ const SettingsScreen = () => {
                 </span>
               </div>
               <div className="flex-1">
-                <p className="text-sm font-medium text-foreground">{userName}</p>
-                <p className="text-xs text-muted-foreground">{phone || '+1 (555) 000-0000'}</p>
+                <p className="text-sm font-medium text-foreground">{user?.username || 'Guest User'}</p>
+                <p className="text-xs text-muted-foreground">{'+1 (555) 000-0000'}</p>
               </div>
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
             </div>

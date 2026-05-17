@@ -32,10 +32,11 @@ export const authService = {
   /**
    * New user registration.
    */
-  signUpWithEmail: async (email: string, password: string): Promise<UserIdentity> => {
+  signUpWithEmail: async (email: string, password: string, name: string): Promise<UserIdentity> => {
     const response = await apiClient.post<LoginResponse>('/api/v1/auth/signup', {
       email,
       password,
+      name,
     });
 
     tokenStore.set(response.access_token);

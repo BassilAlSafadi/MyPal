@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { apiClient } from '@/api/client';
 
 export interface SellerPerformanceSummary {
   id: string;
@@ -26,11 +27,7 @@ export const useSellerStore = create<SellerState>((set) => ({
   fetchSellerReport: async (sellerId: string) => {
     set({ loading: true, error: null });
     try {
-      const base = import.meta.env.VITE_ORCHESTRATOR_URL || '';
-      const url = `${base}/seller-report/${encodeURIComponent(sellerId)}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`fetch failed ${res.status}`);
-      const data = await res.json();
+      const data = await apiClient.get<any>(`/api/v1/seller-report/${encodeURIComponent(sellerId)}`);
       set({ report: data, loading: false });
     } catch (e: any) {
       set({ error: e?.message || String(e), loading: false });
