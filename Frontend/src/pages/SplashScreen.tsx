@@ -34,7 +34,7 @@ const SplashScreen = () => {
       clearInterval(progressInterval);
       clearTimeout(timer);
     };
-  }, [isLoggedIn, navigate]);
+  }, [isAuthenticated, navigate]);
 
   return (
     <div

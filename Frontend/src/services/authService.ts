@@ -1,4 +1,5 @@
 import { apiClient, tokenStore } from '@/api/client';
+import { env } from '@/config/env';
 import { UserIdentity, LoginResponse } from '../../../shared/contracts/auth/identity';
 
 /**
@@ -12,7 +13,7 @@ export const authService = {
    */
   loginWithGoogle: () => {
     // Direct redirect to the C# Auth through the Gateway
-    window.location.href = `${import.meta.env.VITE_API_GATEWAY}/api/v1/auth/google/login`;
+    window.location.href = `${env.API_GATEWAY}/api/v1/auth/google/login`;
   },
 
   /**

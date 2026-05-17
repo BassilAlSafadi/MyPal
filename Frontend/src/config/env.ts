@@ -1,3 +1,5 @@
+const requiredEnvKeys = ['VITE_API_GATEWAY', 'VITE_NODE_ORCHESTRATOR', 'VITE_PRODBERT'] as const;
+
 export const env = {
   API_GATEWAY: import.meta.env.VITE_API_GATEWAY || 'http://localhost:8080',
   NODE_ORCHESTRATOR: import.meta.env.VITE_NODE_ORCHESTRATOR || 'http://localhost:5003',
@@ -7,14 +9,17 @@ export const env = {
 
 /**
  * Validates that all required environment variables are present.
- * Fails fast in development.
+ * Warns in development where local defaults are useful, and fails fast in production.
  */
 export const validateEnv = () => {
-  const required = ['VITE_API_GATEWAY', 'VITE_NODE_ORCHESTRATOR', 'VITE_PRODBERT'];
-  const missing = required.filter(key => !import.meta.env[key]);
+  const missing = requiredEnvKeys.filter(key => !import.meta.env[key]);
   
   if (missing.length > 0 && import.meta.env.DEV) {
     console.warn(`[Config] Missing environment variables: ${missing.join(', ')}`);
     console.warn('[Config] Using default localhost values.');
+  }
+
+  if (missing.length > 0 && import.meta.env.PROD) {
+    throw new Error(`[Config] Missing environment variables: ${missing.join(', ')}`);
   }
 };
