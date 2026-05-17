@@ -105,6 +105,7 @@ func (d *Director) HandlerWithRewrite(prefixToStrip string, upstreamPrefix strin
 				}
 			}
 		} else {
+			relayHeaders(w, resp)
 			writeGatewayEnvelope(w, resp.StatusCode, rawBody, traceID)
 		}
 
@@ -174,6 +175,7 @@ func forwardedProto(r *http.Request) string {
 func relayHeaders(dst http.ResponseWriter, src *http.Response) {
 	strip := map[string]bool{
 		strings.ToLower(tracing.HeaderInternalToken): true,
+		"content-length": true,
 	}
 	for key, vals := range src.Header {
 		if strip[strings.ToLower(key)] {

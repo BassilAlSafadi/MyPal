@@ -54,7 +54,7 @@ app.MapGet("/", () => $"C# Backend running! Postgres Configured: {!string.IsNull
 
 // --- Auth Endpoints ---
 
-app.MapPost("/api/auth/signup", async (SignupRequest request, MyPalDbContext db, IJwtService jwtService) =>
+app.MapPost("/api/auth/signup", async (SignupRequest request, HttpContext context, MyPalDbContext db, IJwtService jwtService) =>
 {
     if (string.IsNullOrWhiteSpace(request.Email))
     {
@@ -85,12 +85,13 @@ app.MapPost("/api/auth/signup", async (SignupRequest request, MyPalDbContext db,
     await db.SaveChangesAsync();
 
     var accessToken = jwtService.GenerateAccessToken(user);
-    var refreshToken = jwtService.GenerateRefreshToken();
+    var refreshToken = jwtService.GenerateRefreshToken(user);
+    SetRefreshCookie(context, refreshToken);
 
     return Results.Ok(AuthPayload(user, accessToken, refreshToken));
 });
 
-app.MapPost("/api/auth/login", async (LoginRequest request, MyPalDbContext db, IJwtService jwtService) =>
+app.MapPost("/api/auth/login", async (LoginRequest request, HttpContext context, MyPalDbContext db, IJwtService jwtService) =>
 {
     var user = await db.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
     if (user == null) return Results.Unauthorized();
@@ -98,7 +99,8 @@ app.MapPost("/api/auth/login", async (LoginRequest request, MyPalDbContext db, I
     // In a real app, verify password hash here.
 
     var accessToken = jwtService.GenerateAccessToken(user);
-    var refreshToken = jwtService.GenerateRefreshToken();
+    var refreshToken = jwtService.GenerateRefreshToken(user);
+    SetRefreshCookie(context, refreshToken);
 
     return Results.Ok(AuthPayload(user, accessToken, refreshToken));
 });
@@ -138,19 +140,46 @@ app.MapGet("/api/auth/google/complete", async (HttpContext context, MyPalDbConte
     user.UpdatedAt = DateTime.UtcNow;
 
     var accessToken = jwtService.GenerateAccessToken(user);
-    var refreshToken = jwtService.GenerateRefreshToken();
+    var refreshToken = jwtService.GenerateRefreshToken(user);
+    SetRefreshCookie(context, refreshToken);
 
     var frontendUrl = builder.Configuration["FRONTEND_URL"] ?? "http://localhost:5173";
-    return Results.Redirect($"{frontendUrl}/auth/callback?access_token={accessToken}&refresh_token={refreshToken}");
+    return Results.Redirect($"{frontendUrl}/auth/callback?access_token={accessToken}");
 });
 
-app.MapPost("/api/auth/refresh", (RefreshRequest request, IJwtService jwtService) =>
+app.MapPost("/api/auth/refresh", async (RefreshRequest request, HttpContext context, MyPalDbContext db, IJwtService jwtService) =>
 {
-    // Validate refresh token and issue new access token.
-    return Results.Ok(new { access_token = "new-access-token" });
+    var refreshToken = request.RefreshToken ?? context.Request.Cookies["mypal_refresh"];
+    if (string.IsNullOrWhiteSpace(refreshToken)) return Results.Unauthorized();
+
+    ClaimsPrincipal? principal;
+    try
+    {
+        principal = jwtService.ValidateRefreshToken(refreshToken);
+    }
+    catch
+    {
+        return Results.Unauthorized();
+    }
+    var subject = principal?.FindFirstValue(ClaimTypes.NameIdentifier)
+        ?? principal?.FindFirstValue("sub");
+    if (!Guid.TryParse(subject, out var userId)) return Results.Unauthorized();
+
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user == null) return Results.Unauthorized();
+
+    var accessToken = jwtService.GenerateAccessToken(user);
+    var rotatedRefreshToken = jwtService.GenerateRefreshToken(user);
+    SetRefreshCookie(context, rotatedRefreshToken);
+
+    return Results.Ok(AuthPayload(user, accessToken, rotatedRefreshToken));
 });
 
-app.MapPost("/api/auth/logout", () => Results.Ok());
+app.MapPost("/api/auth/logout", (HttpContext context) =>
+{
+    context.Response.Cookies.Delete("mypal_refresh", new CookieOptions { Path = "/" });
+    return Results.Ok();
+});
 
 static AuthResponse AuthPayload(User user, string accessToken, string refreshToken) =>
     new(ToUserIdentity(user), accessToken, refreshToken, 900);
@@ -168,6 +197,18 @@ static UserIdentityResponse ToUserIdentity(User user)
         user.CreatedAt,
         user.UpdatedAt
     );
+}
+
+static void SetRefreshCookie(HttpContext context, string refreshToken)
+{
+    context.Response.Cookies.Append("mypal_refresh", refreshToken, new CookieOptions
+    {
+        HttpOnly = true,
+        Secure = context.Request.IsHttps,
+        SameSite = SameSiteMode.Lax,
+        Expires = DateTimeOffset.UtcNow.AddDays(30),
+        Path = "/"
+    });
 }
 
 app.Run();

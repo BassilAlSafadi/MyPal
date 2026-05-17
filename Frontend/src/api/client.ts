@@ -73,6 +73,7 @@ function generateTraceId(): string {
 async function gatewayFetch<T>(
   path: string,
   options: RequestInit = {},
+  retryOnUnauthorized = true,
 ): Promise<T> {
   const traceId = generateTraceId();
   const url = `${env.API_GATEWAY}${path}`;
@@ -93,6 +94,13 @@ async function gatewayFetch<T>(
     headers,
     credentials: 'include', // sends httpOnly refresh cookie
   });
+
+  if (response.status === 401 && retryOnUnauthorized && shouldRefreshOnUnauthorized(path)) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      return gatewayFetch<T>(path, options, false);
+    }
+  }
 
   const body = await parseResponseBody(response);
 
@@ -117,6 +125,47 @@ async function gatewayFetch<T>(
   }
 
   return body as T;
+}
+
+async function refreshAccessToken(): Promise<boolean> {
+  const traceId = generateTraceId();
+
+  try {
+    const response = await fetch(`${env.API_GATEWAY}/api/v1/auth/refresh`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Trace-ID': traceId,
+      },
+      body: JSON.stringify({}),
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      tokenStore.clear();
+      return false;
+    }
+
+    const body = await parseResponseBody(response);
+    const payload = isAPIResponse<{ access_token?: string }>(body)
+      ? body.data
+      : body as { access_token?: string } | undefined;
+
+    if (!payload?.access_token) {
+      tokenStore.clear();
+      return false;
+    }
+
+    tokenStore.set(payload.access_token);
+    return true;
+  } catch {
+    tokenStore.clear();
+    return false;
+  }
+}
+
+function shouldRefreshOnUnauthorized(path: string): boolean {
+  return !path.startsWith('/api/v1/auth/');
 }
 
 async function parseResponseBody(response: Response): Promise<unknown> {

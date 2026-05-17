@@ -11,7 +11,6 @@ const AuthCallback = () => {
 
   useEffect(() => {
     const accessToken = searchParams.get('access_token');
-    const refreshToken = searchParams.get('refresh_token');
 
     if (accessToken) {
       tokenStore.set(accessToken);
