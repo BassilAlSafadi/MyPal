@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -15,6 +16,7 @@ type GatewayConfig struct {
 	Auth         AuthConfig
 	RateLimit    RateLimitConfig
 	Messaging    MessagingConfig
+	CORS         CORSConfig
 	MaxBodyBytes int64
 }
 
@@ -54,6 +56,11 @@ type MessagingConfig struct {
 	ReconciliationInterval time.Duration
 }
 
+// CORSConfig holds browser-origin policy for the public gateway.
+type CORSConfig struct {
+	AllowedOrigins []string
+}
+
 // Load reads configuration from environment variables with typed defaults.
 func Load() (*GatewayConfig, error) {
 	cfg := &GatewayConfig{
@@ -85,6 +92,12 @@ func Load() (*GatewayConfig, error) {
 			OutboxInterval:         getEnvDuration("OUTBOX_WORKER_INTERVAL_MS", 1000),
 			ReconciliationInterval: getEnvDuration("RECONCILIATION_WORKER_INTERVAL_MS", 30000),
 		},
+		CORS: CORSConfig{
+			AllowedOrigins: getEnvList("CORS_ALLOWED_ORIGINS", []string{
+				"http://localhost:5173",
+				"http://127.0.0.1:5173",
+			}),
+		},
 	}
 
 	if cfg.Auth.InternalServiceToken == "" {
@@ -105,6 +118,22 @@ func getEnvInt(key string, fallback int) int {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			return n
+		}
+	}
+	return fallback
+}
+
+func getEnvList(key string, fallback []string) []string {
+	if v := os.Getenv(key); v != "" {
+		parts := strings.Split(v, ",")
+		out := make([]string, 0, len(parts))
+		for _, part := range parts {
+			if trimmed := strings.TrimSpace(part); trimmed != "" {
+				out = append(out, trimmed)
+			}
+		}
+		if len(out) > 0 {
+			return out
 		}
 	}
 	return fallback

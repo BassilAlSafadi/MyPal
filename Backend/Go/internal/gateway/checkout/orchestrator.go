@@ -5,14 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
+	"mypal/api/go/internal/gateway/auth"
+	"mypal/api/go/internal/gateway/responses"
 	"mypal/api/go/internal/gateway/saga"
+	"mypal/api/go/internal/gateway/tracing"
 )
 
 var tracer = otel.Tracer("checkout-orchestrator")
@@ -47,7 +50,40 @@ type CheckoutRequest struct {
 // CheckoutResponse returns the result of the saga.
 type CheckoutResponse struct {
 	ParentOrderID string `json:"parent_order_id"`
+	SagaID        string `json:"saga_id"`
 	Status        string `json:"status"`
+}
+
+// Handler exposes checkout saga orchestration through the Gateway.
+func Handler(db *pgxpool.Pool) http.HandlerFunc {
+	orchestrator := NewOrchestrator(db)
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		traceID := tracing.TraceIDFrom(r.Context())
+
+		var req CheckoutRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			responses.Error(w, http.StatusBadRequest, responses.CodeInvalidQuery, "invalid checkout request body", traceID)
+			return
+		}
+
+		if identity := auth.IdentityFrom(r.Context()); identity != nil {
+			req.BuyerID = identity.UserID
+		}
+		if req.BuyerID == "" || req.CartID == "" {
+			responses.Error(w, http.StatusBadRequest, responses.CodeInvalidQuery, "buyer and cart are required", traceID)
+			return
+		}
+
+		resp, err := orchestrator.Process(r.Context(), req, traceID)
+		if err != nil {
+			slog.Error("checkout: orchestration failed", "err", err, "trace_id", traceID)
+			responses.InternalError(w, traceID)
+			return
+		}
+
+		responses.OK(w, resp)
+	}
 }
 
 // Process coordinates the multi-vendor checkout workflow.
@@ -153,6 +189,7 @@ func (o *Orchestrator) Process(ctx context.Context, req CheckoutRequest, traceID
 
 	return &CheckoutResponse{
 		ParentOrderID: parentOrderID,
+		SagaID:        sagaID,
 		Status:        "processing",
 	}, nil
 }

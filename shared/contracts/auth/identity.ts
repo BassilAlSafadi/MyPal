@@ -22,6 +22,12 @@ export interface LoginRequest {
   google_id_token?: string;
 }
 
+export interface SignupRequest {
+  email: string;
+  password: string;
+  name: string;
+}
+
 export interface LoginResponse {
   user: UserIdentity;
   access_token: string;

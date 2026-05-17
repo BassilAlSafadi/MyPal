@@ -5,6 +5,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -30,17 +31,21 @@ type Director struct {
 //   - enforces the timeout defined in Director
 //   - normalises upstream errors into standard gateway envelopes
 func (d *Director) Handler(prefixToStrip string) http.Handler {
+	return d.HandlerWithRewrite(prefixToStrip, "")
+}
+
+// HandlerWithRewrite strips a public gateway prefix and prepends an upstream
+// prefix before forwarding the request. JSON responses are normalized into the
+// Gateway envelope unless the upstream already returned one.
+func (d *Director) HandlerWithRewrite(prefixToStrip string, upstreamPrefix string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		traceID := tracing.TraceIDFrom(r.Context())
 		ctx, cancel := context.WithTimeout(r.Context(), d.Timeout)
 		defer cancel()
 
 		// Build upstream URL.
-		targetPath := strings.TrimPrefix(r.URL.Path, prefixToStrip)
-		if targetPath == "" {
-			targetPath = "/"
-		}
-		targetURL, err := url.Parse(fmt.Sprintf("%s%s", d.BaseURL, targetPath))
+		targetPath := rewritePath(r.URL.Path, prefixToStrip, upstreamPrefix)
+		targetURL, err := url.Parse(fmt.Sprintf("%s%s", strings.TrimRight(d.BaseURL, "/"), targetPath))
 		if err != nil {
 			slog.Error("proxy: failed to parse upstream URL",
 				"err", err, "trace_id", traceID)
@@ -60,6 +65,7 @@ func (d *Director) Handler(prefixToStrip string) http.Handler {
 
 		// Copy safe headers from the original request.
 		copyHeaders(req, r)
+		setForwardedHeaders(req, r)
 
 		// Inject tracing and internal auth.
 		tracing.InjectHeaders(req, traceID, d.InternalToken)
@@ -81,14 +87,25 @@ func (d *Director) Handler(prefixToStrip string) http.Handler {
 		}
 		defer resp.Body.Close()
 
-		// Relay response headers (filtered).
-		relayHeaders(w, resp)
-		tracing.SetResponseHeaders(w, traceID)
+		rawBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			slog.Warn("proxy: failed to read upstream body", "err", err, "trace_id", traceID)
+			responses.InternalError(w, traceID)
+			return
+		}
 
-		w.WriteHeader(resp.StatusCode)
-		if _, err := io.Copy(w, resp.Body); err != nil {
-			slog.Warn("proxy: failed to relay body",
-				"err", err, "trace_id", traceID)
+		if isRedirect(resp.StatusCode) || !isJSONResponse(resp, rawBody) {
+			relayHeaders(w, resp)
+			tracing.SetResponseHeaders(w, traceID)
+			w.WriteHeader(resp.StatusCode)
+			if len(rawBody) > 0 {
+				if _, err := w.Write(rawBody); err != nil {
+					slog.Warn("proxy: failed to relay body",
+						"err", err, "trace_id", traceID)
+				}
+			}
+		} else {
+			writeGatewayEnvelope(w, resp.StatusCode, rawBody, traceID)
 		}
 
 		slog.Info("proxy: upstream response",
@@ -98,6 +115,21 @@ func (d *Director) Handler(prefixToStrip string) http.Handler {
 			"trace_id", traceID,
 		)
 	})
+}
+
+func rewritePath(path, prefixToStrip, upstreamPrefix string) string {
+	targetPath := strings.TrimPrefix(path, prefixToStrip)
+	if targetPath == "" {
+		targetPath = "/"
+	}
+	if !strings.HasPrefix(targetPath, "/") {
+		targetPath = "/" + targetPath
+	}
+
+	if upstreamPrefix == "" || upstreamPrefix == "/" {
+		return targetPath
+	}
+	return strings.TrimRight(upstreamPrefix, "/") + targetPath
 }
 
 // copyHeaders copies a safe subset of headers to the upstream request.
@@ -119,6 +151,24 @@ func copyHeaders(dst, src *http.Request) {
 	}
 }
 
+func setForwardedHeaders(dst, src *http.Request) {
+	dst.Header.Set("X-Forwarded-Host", src.Host)
+	dst.Header.Set("X-Forwarded-Proto", forwardedProto(src))
+	if src.RemoteAddr != "" {
+		dst.Header.Set("X-Forwarded-For", src.RemoteAddr)
+	}
+}
+
+func forwardedProto(r *http.Request) string {
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		return proto
+	}
+	if r.TLS != nil {
+		return "https"
+	}
+	return "http"
+}
+
 // relayHeaders copies response headers from upstream to the client response.
 // Internal infrastructure headers (X-Internal-Token) are stripped.
 func relayHeaders(dst http.ResponseWriter, src *http.Response) {
@@ -133,4 +183,107 @@ func relayHeaders(dst http.ResponseWriter, src *http.Response) {
 			dst.Header().Add(key, v)
 		}
 	}
+}
+
+func isRedirect(status int) bool {
+	return status >= 300 && status < 400
+}
+
+func isJSONResponse(resp *http.Response, body []byte) bool {
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed == "" {
+		return strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "application/json")
+	}
+	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "application/json") {
+		return true
+	}
+	return strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, `"`)
+}
+
+func writeGatewayEnvelope(w http.ResponseWriter, status int, rawBody []byte, traceID string) {
+	parsed, parseErr := parseJSONBody(rawBody)
+	if status >= http.StatusBadRequest {
+		responses.Error(w, status, upstreamErrorCode(status), errorMessageFromBody(parsed, rawBody, status), traceID)
+		return
+	}
+
+	if parseErr != nil {
+		responses.JSON(w, status, responses.Envelope{Success: true, Data: string(rawBody)})
+		return
+	}
+
+	if envelope, ok := parsed.(map[string]interface{}); ok {
+		if _, hasSuccess := envelope["success"]; hasSuccess {
+			responses.JSON(w, status, responses.Envelope{
+				Success: envelope["success"] == true,
+				Data:    envelope["data"],
+				Error:   envelopeError(envelope["error"]),
+			})
+			return
+		}
+	}
+
+	responses.JSON(w, status, responses.Envelope{Success: true, Data: parsed})
+}
+
+func parseJSONBody(rawBody []byte) (interface{}, error) {
+	if len(strings.TrimSpace(string(rawBody))) == 0 {
+		return nil, nil
+	}
+	var parsed interface{}
+	err := json.Unmarshal(rawBody, &parsed)
+	return parsed, err
+}
+
+func upstreamErrorCode(status int) string {
+	switch status {
+	case http.StatusUnauthorized:
+		return responses.CodeUnauthorized
+	case http.StatusForbidden:
+		return responses.CodeForbidden
+	case http.StatusRequestEntityTooLarge:
+		return responses.CodeRequestTooLarge
+	default:
+		return responses.CodeUpstreamError
+	}
+}
+
+func errorMessageFromBody(parsed interface{}, rawBody []byte, status int) string {
+	switch value := parsed.(type) {
+	case string:
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	case map[string]interface{}:
+		for _, key := range []string{"message", "error", "detail"} {
+			if msg, ok := value[key].(string); ok && strings.TrimSpace(msg) != "" {
+				return msg
+			}
+		}
+	}
+
+	if raw := strings.TrimSpace(string(rawBody)); raw != "" {
+		return raw
+	}
+	return fmt.Sprintf("upstream returned status %d", status)
+}
+
+func envelopeError(raw interface{}) *responses.APIError {
+	if raw == nil {
+		return nil
+	}
+	if errMap, ok := raw.(map[string]interface{}); ok {
+		apiErr := &responses.APIError{}
+		if code, ok := errMap["code"].(string); ok {
+			apiErr.Code = code
+		}
+		if message, ok := errMap["message"].(string); ok {
+			apiErr.Message = message
+		}
+		if traceID, ok := errMap["trace_id"].(string); ok {
+			apiErr.TraceID = traceID
+		}
+		return apiErr
+	}
+	return &responses.APIError{Code: responses.CodeUpstreamError, Message: fmt.Sprint(raw)}
 }

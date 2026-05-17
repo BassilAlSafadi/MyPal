@@ -78,7 +78,9 @@ async function gatewayFetch<T>(
   const url = `${env.API_GATEWAY}${path}`;
 
   const headers = new Headers(options.headers);
-  headers.set('Content-Type', 'application/json');
+  if (options.body != null && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
   headers.set('X-Trace-ID', traceId);
 
   const token = tokenStore.get();
@@ -92,31 +94,73 @@ async function gatewayFetch<T>(
     credentials: 'include', // sends httpOnly refresh cookie
   });
 
-  // Handle 401: hook for refresh token flow (Phase 2 implementation).
+  const body = await parseResponseBody(response);
+
   if (response.status === 401) {
-    // TODO Phase 2: call /api/v1/auth/refresh, rotate token, retry.
     tokenStore.clear();
-    throw new GatewayError(401, {
-      code: 'UNAUTHORIZED',
-      message: 'Session expired. Please log in again.',
-      trace_id: traceId,
-    });
   }
 
-  const body: APIResponse<T> = await response.json().catch(() => ({
-    success: false,
-    error: { code: 'PARSE_ERROR', message: 'Invalid response from gateway', trace_id: traceId },
-  }));
+  if (isAPIResponse<T>(body)) {
+    if (!response.ok || !body.success) {
+      throw new GatewayError(response.status, body.error ?? {
+        code: response.status === 401 ? 'UNAUTHORIZED' : 'UNKNOWN',
+        message: response.status === 401 ? 'Session expired. Please log in again.' : 'An unknown error occurred',
+        trace_id: traceId,
+      });
+    }
 
-  if (!response.ok || !body.success) {
-    throw new GatewayError(response.status, body.error ?? {
-      code: 'UNKNOWN',
-      message: 'An unknown error occurred',
-      trace_id: traceId,
-    });
+    return body.data as T;
   }
 
-  return body.data as T;
+  if (!response.ok) {
+    throw new GatewayError(response.status, errorFromRawBody(body, traceId, response.status));
+  }
+
+  return body as T;
+}
+
+async function parseResponseBody(response: Response): Promise<unknown> {
+  const text = await response.text();
+  if (!text) return undefined;
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+function isAPIResponse<T>(body: unknown): body is APIResponse<T> {
+  return typeof body === 'object' && body !== null && 'success' in body;
+}
+
+function errorFromRawBody(body: unknown, traceId: string, status: number): APIError {
+  if (typeof body === 'string' && body.trim()) {
+    return { code: statusCodeToErrorCode(status), message: body, trace_id: traceId };
+  }
+
+  if (typeof body === 'object' && body !== null) {
+    const value = body as Record<string, unknown>;
+    const message = value.message ?? value.error ?? value.detail;
+    if (typeof message === 'string' && message.trim()) {
+      return { code: statusCodeToErrorCode(status), message, trace_id: traceId };
+    }
+  }
+
+  return {
+    code: statusCodeToErrorCode(status),
+    message: status === 401 ? 'Session expired. Please log in again.' : 'Request failed',
+    trace_id: traceId,
+  };
+}
+
+function statusCodeToErrorCode(status: number): string {
+  if (status === 401) return 'UNAUTHORIZED';
+  if (status === 403) return 'FORBIDDEN';
+  if (status === 404) return 'NOT_FOUND';
+  if (status === 409) return 'CONFLICT';
+  if (status >= 500) return 'UPSTREAM_ERROR';
+  return 'BAD_REQUEST';
 }
 
 // ──────────────────────────────────────────

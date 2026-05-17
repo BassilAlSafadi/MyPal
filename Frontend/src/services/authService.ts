@@ -26,20 +26,21 @@ export const authService = {
     });
 
     tokenStore.set(response.access_token);
-    return response.user;
+    return normalizeUser(response.user);
   },
 
   /**
    * New user registration.
    */
-  signUpWithEmail: async (email: string, password: string): Promise<UserIdentity> => {
+  signUpWithEmail: async (email: string, password: string, name: string): Promise<UserIdentity> => {
     const response = await apiClient.post<LoginResponse>('/api/v1/auth/signup', {
       email,
       password,
+      name,
     });
 
     tokenStore.set(response.access_token);
-    return response.user;
+    return normalizeUser(response.user);
   },
 
   /**
@@ -62,3 +63,17 @@ export const authService = {
     }
   },
 };
+
+function normalizeUser(user: UserIdentity | any): UserIdentity {
+  const email = user.email ?? '';
+  return {
+    id: user.id,
+    email,
+    username: user.username ?? email.split('@')[0] ?? '',
+    is_buyer: user.is_buyer ?? user.isBuyer ?? false,
+    is_seller: user.is_seller ?? user.isSeller ?? false,
+    roles: Array.isArray(user.roles) ? user.roles : [],
+    created_at: user.created_at ?? user.createdAt ?? new Date().toISOString(),
+    updated_at: user.updated_at ?? user.updatedAt ?? new Date().toISOString(),
+  };
+}

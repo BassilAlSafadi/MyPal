@@ -6,7 +6,7 @@
 | :--- | :--- | :--- | :--- |
 | **Go Gateway** | Go (1.22+) | `:8080` | Entry point, routing, middleware, request tracing, and validation orchestration. |
 | **Go Support** | Go (1.22+) | `:5001` | Real-time communication, session management, and polyglot state synchronization. |
-| **Node Orchestrator** | Node.js / Express | `:5002` | AI workflow orchestration (Gemini/Cohere), review mapping, and seller identity generation. |
+| **Node Orchestrator** | Node.js / Express | `:5003` | AI workflow orchestration (Gemini/Cohere), review mapping, and seller identity generation. |
 | **Python ProdBERT** | Python / FastAPI | `:8001` | Semantic search intelligence, vector embedding generation, and ranking inference. |
 | **C# Main API** | .NET 9 / EF Core | `:5000` | Canonical identity, user management, and system-of-record business entities. |
 | **Frontend** | React / Vite | N/A | User interface (Web). Currently transitioning from mock-heavy state to integrated state. |

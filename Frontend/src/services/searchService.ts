@@ -32,9 +32,9 @@ export const searchService = {
     onProgress("Initializing agentic pipeline...");
     
     try {
-      // Step 1: Call the map endpoint (orchestrator)
+      // Step 1: Call the agentic search endpoint (orchestrator)
       onProgress("Analyzing query intent and mapping sources...");
-      const mapResponse = await apiClient.post<any>('/api/v1/ai/summaries/map', { query });
+      const searchResponse = await apiClient.post<any>('/api/v1/ai/deep-search', { query });
       
       onProgress("Collecting and ranking multi-source data...");
       // In Phase 2, this might still be a single call or multiple.
@@ -49,7 +49,12 @@ export const searchService = {
       onProgress("Finalizing semantic recommendations...");
       
       // Return a structured response (this will be refined in Phase 3/4)
-      return mapResponse.results || [
+      const products = searchResponse.results
+        || searchResponse.result?.products
+        || searchResponse.state?.products
+        || searchResponse.state?.ranked_products;
+
+      return Array.isArray(products) ? products : [
         { id: 'e1', title: 'MacBook Pro 14" M4 Pro', price: 1999, image: 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=300&h=300&fit=crop', source: 'external', seller: 'Amazon', rating: 4.8, url: 'https://amazon.com' },
         { id: 'e2', title: 'Samsung Galaxy S25 Ultra', price: 1299, image: 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=300&h=300&fit=crop', source: 'external', seller: 'Best Buy', rating: 4.7, url: 'https://bestbuy.com' },
       ];

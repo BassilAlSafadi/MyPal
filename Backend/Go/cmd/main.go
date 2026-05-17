@@ -210,6 +210,9 @@ func main() {
 		return func(w http.ResponseWriter, r *http.Request) {
 			key := r.Header.Get("X-API-KEY")
 			if key == "" {
+				key = r.Header.Get("X-Internal-Token")
+			}
+			if key == "" {
 				// try Bearer token
 				auth := r.Header.Get("Authorization")
 				if len(auth) > 7 && auth[:7] == "Bearer " {

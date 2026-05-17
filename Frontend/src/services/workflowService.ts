@@ -25,32 +25,28 @@ export const workflowService = {
    * Orchestrates a multi-vendor checkout saga.
    * Returns a parent_order_id and status.
    */
-  async startCheckoutSaga(payload: CheckoutPayload): Promise<{ parent_order_id: string; status: string }> {
-    const res = await apiClient.post('/api/v1/checkout/orchestrate', payload);
-    return res.data;
+  async startCheckoutSaga(payload: CheckoutPayload): Promise<{ parent_order_id: string; saga_id: string; status: string }> {
+    return apiClient.post<{ parent_order_id: string; saga_id: string; status: string }>('/api/v1/checkout/orchestrate', payload);
   },
 
   /**
    * Polls the status of an ongoing saga (e.g., checkout).
    */
   async pollSagaStatus(sagaId: string): Promise<{ status: string; completed: boolean }> {
-    const res = await apiClient.get(`/api/v1/sagas/${sagaId}/status`);
-    return res.data;
+    return apiClient.get<{ status: string; completed: boolean }>(`/api/v1/sagas/${sagaId}/status`);
   },
 
   /**
    * AI-Assisted listing analysis for sellers.
    */
   async analyzeListing(payload: AnalyzeListingPayload): Promise<any> {
-    const res = await apiClient.post('/api/v1/seller/listing/analyze', payload);
-    return res.data;
+    return apiClient.post('/api/v1/seller/listing/analyze', payload);
   },
 
   /**
    * Generates a comprehensive seller performance report via AI.
    */
   async generateSellerReport(sellerId: string): Promise<{ report_url: string; summary: string }> {
-    const res = await apiClient.post('/api/v1/seller/report/generate', { seller_id: sellerId });
-    return res.data;
+    return apiClient.post<{ report_url: string; summary: string }>('/api/v1/seller/report/generate', { seller_id: sellerId });
   }
 };

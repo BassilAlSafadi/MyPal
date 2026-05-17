@@ -29,6 +29,16 @@ type SagaState struct {
 	RetryCount    int
 }
 
+type StatusResponse struct {
+	SagaID        string     `json:"saga_id"`
+	Workflow      string     `json:"workflow"`
+	Status        Status     `json:"status"`
+	CurrentStep   string     `json:"current_step"`
+	Completed     bool       `json:"completed"`
+	FailureReason *string    `json:"failure_reason,omitempty"`
+	UpdatedAt     *time.Time `json:"updated_at,omitempty"`
+}
+
 type StepStatus string
 
 const (

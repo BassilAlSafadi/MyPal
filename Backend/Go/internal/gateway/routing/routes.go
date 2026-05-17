@@ -14,16 +14,17 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"mypal/api/go/internal/gateway/auth"
+	"mypal/api/go/internal/gateway/checkout"
 	gconfig "mypal/api/go/internal/gateway/config"
 	"mypal/api/go/internal/gateway/middleware"
 	"mypal/api/go/internal/gateway/observability"
 	"mypal/api/go/internal/gateway/proxy"
 	"mypal/api/go/internal/gateway/responses"
+	"mypal/api/go/internal/gateway/saga"
 	"mypal/api/go/internal/gateway/search"
 	"mypal/api/go/internal/gateway/tracing"
 )
@@ -38,8 +39,8 @@ func Register(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Pool, 
 	// Build the routes and apply the global identity header stripper.
 	// This ensures no client-side spoofing can reach any upstream or internal logic.
 	handler := buildRoutes(mux, cfg, db, readiness)
-	
-	return stripIdentityHeaders(handler)
+
+	return middleware.CORS(cfg.CORS.AllowedOrigins)(stripIdentityHeaders(handler))
 }
 
 // stripIdentityHeaders removes X-User-* headers from all incoming requests
@@ -155,23 +156,29 @@ func buildRoutes(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Poo
 	// Auth routes → C# Main API  (public, no JWT required)
 	// Maps /api/v1/auth/login -> /api/auth/login on C#
 	// ----------------------------------------------------------------
-	mux.Handle("/api/v1/auth/", base(csharpProxy.Handler("/api/v1")))
-
+	mux.Handle("/api/v1/auth/", base(csharpProxy.HandlerWithRewrite("/api/v1", "/api")))
+	mux.Handle("/api/auth/", base(csharpProxy.Handler("")))
 
 	// ----------------------------------------------------------------
 	// User & profile routes → C# Main API  (authenticated)
 	// ----------------------------------------------------------------
-	mux.Handle("/api/v1/users/", authenticated(csharpProxy.Handler("/api/v1/users")))
+	mux.Handle("/api/v1/users/", authenticated(csharpProxy.HandlerWithRewrite("/api/v1", "/api")))
 
 	// ----------------------------------------------------------------
 	// Products & inventory → C# Main API  (authenticated)
 	// ----------------------------------------------------------------
-	mux.Handle("/api/v1/products/", authenticated(csharpProxy.Handler("/api/v1/products")))
+	mux.Handle("/api/v1/products/", authenticated(csharpProxy.HandlerWithRewrite("/api/v1", "/api")))
 
 	// ----------------------------------------------------------------
 	// Orders & checkout → C# Main API  (authenticated)
 	// ----------------------------------------------------------------
-	mux.Handle("/api/v1/orders/", authenticated(csharpProxy.Handler("/api/v1/orders")))
+	mux.Handle("/api/v1/orders/", authenticated(csharpProxy.HandlerWithRewrite("/api/v1", "/api")))
+
+	// ----------------------------------------------------------------
+	// Checkout saga orchestration and status polling
+	// ----------------------------------------------------------------
+	mux.Handle("POST /api/v1/checkout/orchestrate", authenticated(checkout.Handler(db)))
+	mux.Handle("GET /api/v1/sagas/{saga_id}/status", authenticated(saga.StatusHandler(db)))
 
 	// ----------------------------------------------------------------
 	// Semantic Search (orchestrated)  → searchStack → ProdBERT + pgvector
@@ -188,13 +195,16 @@ func buildRoutes(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Poo
 	// ----------------------------------------------------------------
 	// AI & LLM Orchestration → Node Orchestrator  (authenticated)
 	// ----------------------------------------------------------------
-	mux.Handle("/api/v1/ai/", authenticated(nodeProxy.Handler("/api/v1/ai")))
-	mux.Handle("/api/v1/seller-report/", authenticated(nodeProxy.Handler("/api/v1/seller-report")))
+	mux.Handle("/api/v1/ai/summaries/", authenticated(nodeProxy.HandlerWithRewrite("/api/v1/ai", "")))
+	mux.Handle("/api/v1/ai/", authenticated(nodeProxy.Handler("/api/v1")))
+	mux.Handle("/api/v1/agent/", authenticated(nodeProxy.Handler("/api/v1")))
+	mux.Handle("/api/v1/seller/", authenticated(nodeProxy.Handler("/api/v1")))
+	mux.Handle("/api/v1/seller-report/", authenticated(nodeProxy.Handler("/api/v1")))
 
 	// ----------------------------------------------------------------
 	// Support / realtime → Go Support  (authenticated)
 	// ----------------------------------------------------------------
-	mux.Handle("/api/v1/support/", authenticated(supportProxy.Handler("/api/v1/support")))
+	mux.Handle("/api/v1/support/", authenticated(supportProxy.HandlerWithRewrite("/api/v1/support", "/api")))
 
 	// ----------------------------------------------------------------
 	// Internal service-to-service routes (internal token only)
@@ -205,7 +215,7 @@ func buildRoutes(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Poo
 	// SSQL validation pass-through (for backward compat with Go Support)
 	// ----------------------------------------------------------------
 	mux.Handle("GET /internal/validate-ssql", internalStack(
-		supportProxy.Handler("/validate-ssql"),
+		supportProxy.Handler("/internal"),
 	))
 
 	// ----------------------------------------------------------------
@@ -217,7 +227,5 @@ func buildRoutes(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Poo
 			"no route matched "+r.URL.Path, traceID)
 	})))
 
-	// Return a no-op handler; real routes are registered on the mux above.
-	_ = strings.ToLower // import anchor
 	return mux
 }

@@ -31,6 +31,34 @@ import (
 	"time"
 )
 
+// CORS applies browser access policy for the public Gateway.
+func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
+	allowed := make(map[string]struct{}, len(allowedOrigins))
+	for _, origin := range allowedOrigins {
+		allowed[strings.TrimSpace(origin)] = struct{}{}
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+			if _, ok := allowed[origin]; ok {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Trace-ID, Idempotency-Key")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+				w.Header().Add("Vary", "Origin")
+			}
+
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // ----------------------------------------
 // 1. Correlation ID / Request ID
 // ----------------------------------------
@@ -230,8 +258,8 @@ type tokenBucket struct {
 }
 
 var (
-	buckets   = sync.Map{}
-	globalRPS = 100.0
+	buckets     = sync.Map{}
+	globalRPS   = 100.0
 	globalBurst = 200.0
 )
 

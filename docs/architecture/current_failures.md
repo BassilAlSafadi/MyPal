@@ -12,7 +12,7 @@ This document identifies existing gaps and weaknesses in the MyPal platform that
 
 ## 3. Security Weaknesses
 *   **Brittle SSQL Validation**: The `validate-ssql` endpoint in the Go Support service relies on a simplistic regex. This is a significant security bottleneck and easily bypassed.
-*   **Exposed Internal Ports**: Docker Compose exposes internal service ports (5000, 5001, 5002, 8001) to the host machine, bypassing the Gateway security layer.
+*   **Exposed Internal Ports**: Docker Compose exposes internal service ports (5000, 5001, 5003, 8001) to the host machine, bypassing the Gateway security layer.
 
 ## 4. Orchestration & Pipeline Fractures
 *   **Disconnected Semantic Search**: While Python ProdBERT exists, the Go Gateway does not currently coordinate the search flow (`Gateway -> SSQL -> Python -> Postgres`).

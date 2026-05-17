@@ -54,11 +54,11 @@ const SignupScreen = () => {
     setLoading(true);
     setError('');
     try {
-      const user = await authService.signUpWithEmail(email, password);
+      const user = await authService.signUpWithEmail(email, password, name.trim());
       setUser(user); 
       navigate('/home');
-    } catch (err) {
-      setError('Failed to create account');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to create account');
     } finally {
       setLoading(false);
     }

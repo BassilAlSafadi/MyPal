@@ -73,8 +73,8 @@ Request → CORS → RateLimit → CorrelationID → InternalTokenValidation
 | `/api/v1/products/*` | C# `:5000` | JWT | Catalog operations |
 | `/api/v1/orders/*` | C# `:5000` | JWT | Order lifecycle |
 | `/api/v1/search` | Gateway-orchestrated | JWT | Multi-service pipeline |
-| `/api/v1/ai/*` | Node `:5002` | JWT + Internal | AI workflows |
-| `/api/v1/seller-report/*` | Node `:5002` | JWT + Internal | Seller intelligence |
+| `/api/v1/ai/*` | Node `:5003` | JWT + Internal | AI workflows |
+| `/api/v1/seller-report/*` | Node `:5003` | JWT + Internal | Seller intelligence |
 | `/ws/support` | Go Support `:5001` | JWT | WebSocket realtime |
 | `/internal/*` | Various | Internal Token only | Service-to-service |
 

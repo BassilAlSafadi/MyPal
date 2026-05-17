@@ -19,6 +19,31 @@ func NewStore(db *pgxpool.Pool) *Store {
 	return &Store{db: db}
 }
 
+// GetStatus returns the current durable state for a saga.
+func (s *Store) GetStatus(ctx context.Context, sagaID string) (*StatusResponse, error) {
+	var resp StatusResponse
+	var updatedAt *time.Time
+	err := s.db.QueryRow(ctx, `
+		SELECT saga_id, workflow, status, current_step, failure_reason, updated_at
+		FROM saga_states
+		WHERE saga_id = $1
+	`, sagaID).Scan(
+		&resp.SagaID,
+		&resp.Workflow,
+		&resp.Status,
+		&resp.CurrentStep,
+		&resp.FailureReason,
+		&updatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get saga status: %w", err)
+	}
+
+	resp.Completed = resp.Status == StatusCompleted || resp.Status == StatusCompensated || resp.Status == StatusDeadLetter
+	resp.UpdatedAt = updatedAt
+	return &resp, nil
+}
+
 // InitializeSaga durably starts a saga and logs the initial step.
 func (s *Store) InitializeSaga(ctx context.Context, tx pgx.Tx, state *SagaState, step *SagaStep) error {
 	workflow := state.Workflow
