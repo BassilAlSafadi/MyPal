@@ -20,6 +20,11 @@ func main() {
 		w.Write([]byte("OK"))
 	})
 
-	log.Println("Listening on :8080...")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Printf("Listening on :%s...\n", port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }

@@ -6,7 +6,7 @@ import { Progress } from '@/components/ui/progress';
 
 const SplashScreen = () => {
   const navigate = useNavigate();
-  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const [progress, setProgress] = useState(0);
   const [fadeOut, setFadeOut] = useState(false);
 
@@ -26,7 +26,7 @@ const SplashScreen = () => {
     const timer = setTimeout(() => {
       setFadeOut(true);
       setTimeout(() => {
-        navigate(isLoggedIn ? '/home' : '/login');
+        navigate(isAuthenticated ? '/home' : '/login');
       }, 300);
     }, 2000);
 
@@ -34,7 +34,7 @@ const SplashScreen = () => {
       clearInterval(progressInterval);
       clearTimeout(timer);
     };
-  }, [isLoggedIn, navigate]);
+  }, [isAuthenticated, navigate]);
 
   return (
     <div

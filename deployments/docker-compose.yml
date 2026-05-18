@@ -1,26 +1,159 @@
-version: '3.8'
-
 services:
+  # Infrastructure
+  postgres:
+    image: ankane/pgvector:v0.5.1
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mypal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mypal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  nats:
+    image: nats:latest
+    command: ["-js"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+
+  # Applications
   go-gateway:
     build: 
       context: ../src/MyPal.Api.Go
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      nats:
+        condition: service_started
+      csharp-backend:
+        condition: service_started
+      go-support:
+        condition: service_started
+      node-orchestrator:
+        condition: service_started
+      python-prodbert:
+        condition: service_started
     environment:
-      - POSTGRES_URL=${POSTGRES_URL}
-      - MONGO_URI=${MONGO_URI}
-      - REDIS_HOST=${REDIS_HOST}
-      - JWT_SECRET=${JWT_SECRET}
+      - POSTGRES_URL=postgres://postgres:postgres@postgres:5432/mypal?sslmode=disable
+      - MONGO_URI=mongodb://mongodb:27017/mypal_audit
+      - REDIS_URL=redis://redis:6379
+      - CSHARP_MAIN_API_URL=http://csharp-backend:8080
+      - GO_SUPPORT_URL=http://go-support:5001
+      - NODE_ORCHESTRATOR_URL=http://node-orchestrator:5003
+      - PRODBERT_URL=http://python-prodbert:8001
+      - NATS_URL=nats://nats:4222
+      - CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+      - JWT_SECRET=${JWT_SECRET:-supersecret}
+      - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-internal-token}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  go-support:
+    build:
+      context: ../Backend/Go
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_started
+    environment:
+      - POSTGRES_URL=postgres://postgres:postgres@postgres:5432/mypal?sslmode=disable
+      - MONGO_URL=mongodb://mongodb:27017/mypal_audit
+      - GO_SERVER_PORT=5001
+      - API_KEY=${INTERNAL_SERVICE_TOKEN:-internal-token}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   csharp-backend:
     build: 
-      context: ../src/MyPal.Backend.CSharp
-      dockerfile: Dockerfile
+      context: ../Backend/CSharp
+      dockerfile: MyPal.API/Dockerfile
     ports:
       - "5000:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
-      - POSTGRES_URL=${POSTGRES_URL}
-      - MONGO_URI=${MONGO_URI}
-      - REDIS_HOST=${REDIS_HOST}
-      - JWT_SECRET=${JWT_SECRET}
+      - POSTGRES_URL=Host=postgres;Database=mypal;Username=postgres;Password=postgres
+      - MONGO_URI=mongodb://mongodb:27017/mypal_audit
+      - REDIS_URL=redis:6379
+      - JWT_SECRET=${JWT_SECRET:-supersecret}
+      - FRONTEND_URL=http://localhost:5173
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  node-orchestrator:
+    build:
+      context: ../Backend/Node
+    ports:
+      - "5003:5003"
+    depends_on:
+      - python-prodbert
+      - postgres
+      - mongodb
+    environment:
+      - NODE_ORCHESTRATOR_PORT=5003
+      - COHERE_API_KEY=${COHERE_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - PRODBERT_URL=http://python-prodbert:8001
+      - POSTGRES_URL=postgres://postgres:postgres@postgres:5432/mypal?sslmode=disable
+      - MONGO_URL=mongodb://mongodb:27017/mypal_audit
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  python-prodbert:
+    build:
+      context: ../Backend/Python
+    ports:
+      - "8001:8001"
+    environment:
+      - PRODBERT_PORT=8001
+      - PRODBERT_MODEL=${PRODBERT_MODEL:-sentence-transformers/paraphrase-MiniLM-L3-v2}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  pgdata:
+  mongodata:

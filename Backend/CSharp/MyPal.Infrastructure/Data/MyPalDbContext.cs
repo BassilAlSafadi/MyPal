@@ -21,16 +21,82 @@ public class MyPalDbContext : DbContext
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductAttribute> ProductAttributes => Set<ProductAttribute>();
+    public DbSet<ProductMedia> ProductMedia => Set<ProductMedia>();
     public DbSet<ProductReview> ProductReviews => Set<ProductReview>();
+    public DbSet<ProductValidationResult> ProductValidationResults => Set<ProductValidationResult>();
+    public DbSet<SellerPerformanceSummary> SellerPerformanceSummaries => Set<SellerPerformanceSummary>();
+    public DbSet<LifeTrackHistory> LifeTrackHistories => Set<LifeTrackHistory>();
     public DbSet<SupportTicket> SupportTickets => Set<SupportTicket>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<UserAlgorithmSteering> UserAlgorithmSteerings => Set<UserAlgorithmSteering>();
     public DbSet<Vendor> Vendors => Set<Vendor>();
+    public DbSet<OutboxEvent> OutboxEvents => Set<OutboxEvent>();
+    public DbSet<ProcessedEvent> ProcessedEvents => Set<ProcessedEvent>();
+    public DbSet<SagaStateEntity> SagaStates => Set<SagaStateEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        
+        // base type configuration removed
 
+    // --- NEW CONFIGURATIONS ---
+    modelBuilder.Entity<MyPalProduct>()
+        .Property(p => p.SerialNumber)
+        .HasColumnName("serial_number")
+        .IsRequired(false); // Can be null if not yet assigned
+
+    modelBuilder.Entity<MyPalProduct>()
+        .Property(p => p.AuthenticityStatus)
+        .HasColumnName("authenticity_status")
+        .HasDefaultValue("pending")
+        .IsRequired();
+
+    modelBuilder.Entity<MyPalProduct>()
+        .Property(p => p.LastVerifiedAt)
+        .HasColumnName("last_verified_at")
+        .HasColumnType("timestamp without time zone")
+        .IsRequired(false);
+        
+        modelBuilder.Entity<OutboxEvent>()
+            .ToTable("outbox_events", table =>
+                table.HasCheckConstraint(
+                    "CK_outbox_events_publish_status",
+                    "publish_status IN ('pending', 'publishing', 'published', 'failed')"))
+            .HasKey(x => x.Id);
+
+        modelBuilder.Entity<OutboxEvent>()
+            .Property(x => x.Payload)
+            .HasColumnType("jsonb");
+
+        modelBuilder.Entity<OutboxEvent>()
+            .Property(x => x.CreatedAt)
+            .HasDefaultValueSql("now()");
+
+        modelBuilder.Entity<OutboxEvent>()
+            .Property(x => x.UpdatedAt)
+            .HasDefaultValueSql("now()");
+
+        modelBuilder.Entity<OutboxEvent>()
+            .Property(x => x.PublishStatus)
+            .HasDefaultValue("pending");
+
+        modelBuilder.Entity<OutboxEvent>()
+            .Property(x => x.PublishAttempts)
+            .HasDefaultValue(0);
+
+        modelBuilder.Entity<OutboxEvent>()
+            .HasIndex(x => new { x.PublishStatus, x.CreatedAt })
+            .HasDatabaseName("IX_outbox_events_publish_status_created_at");
+
+        modelBuilder.Entity<ProcessedEvent>()
+            .HasKey(x => new { x.EventId, x.Consumer });
+
+        modelBuilder.Entity<SagaStateEntity>()
+            .Property(x => x.RetryCount)
+            .HasDefaultValue(0);
+        
         modelBuilder.Entity<Cart>()
             .HasMany(x => x.CartItems)
             .WithOne(x => x.Cart)
@@ -151,6 +217,53 @@ public class MyPalDbContext : DbContext
         modelBuilder.Entity<SupportTicket>()
             .Property(x => x.Priority)
             .HasConversion(LowercaseEnumConverter<SupportTicketPriority>());
+
+        // --- Order: PaymentMethod enum ---
+        // SQL stores 'Wallet', 'COD', 'Split' (PascalCase / uppercase acronym).
+        // The converter maps the C# enum to the exact DB strings so EF does not
+        // silently lowercase them and break the CHECK constraint.
+        modelBuilder.Entity<Order>()
+            .Property(x => x.PaymentMethod)
+            .HasConversion(
+                v => v.HasValue ? PaymentMethodToDbString(v.Value) : null,
+                v => string.IsNullOrWhiteSpace(v) ? (PaymentMethod?)null : DbStringToPaymentMethod(v));
+
+        // --- ProductMedia ---
+        modelBuilder.Entity<ProductMedia>()
+            .HasOne(x => x.Product)
+            .WithMany(x => x.ProductMedia)
+            .HasForeignKey(x => x.ProductId);
+
+        // --- UserAlgorithmSteering ---
+        // Composite PK: (user_id, sector_name). Declared via [PrimaryKey] on the entity.
+        modelBuilder.Entity<UserAlgorithmSteering>()
+            .HasOne(x => x.User)
+            .WithMany(x => x.AlgorithmSteerings)
+            .HasForeignKey(x => x.UserId);
+
+        // weight_multiplier stored as numeric in Postgres but used as double in C#.
+        // EF will handle the numeric<->double conversion automatically via Npgsql.
+        modelBuilder.Entity<UserAlgorithmSteering>()
+            .Property(x => x.WeightMultiplier)
+            .HasColumnType("numeric");
+
+        modelBuilder.Entity<ProductValidationResult>()
+            .HasOne<Product>()
+            .WithMany()
+            .HasForeignKey(x => x.ProductId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<SellerPerformanceSummary>()
+            .HasOne(x => x.Seller)
+            .WithMany()
+            .HasForeignKey(x => x.SellerId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<LifeTrackHistory>()
+            .HasOne(x => x.User)
+            .WithMany(x => x.LifeTrackHistories)
+            .HasForeignKey(x => x.UserId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 
     private static ValueConverter<TEnum?, string?> LowercaseEnumConverter<TEnum>()
@@ -176,5 +289,25 @@ public class MyPalDbContext : DbContext
 
         return string.Concat(parts.Select(p => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(p.ToLowerInvariant())));
     }
-}
 
+    /// <summary>
+    /// Converts a <see cref="PaymentMethod"/> enum value to the exact string stored in the DB.
+    /// 'COD' is an acronym and must stay uppercase to satisfy the Postgres CHECK constraint.
+    /// The generic LowercaseEnumConverter cannot be used here.
+    /// </summary>
+    private static string PaymentMethodToDbString(PaymentMethod method) => method switch
+    {
+        PaymentMethod.Wallet => "Wallet",
+        PaymentMethod.Cod    => "COD",
+        PaymentMethod.Split  => "Split",
+        _                    => throw new ArgumentOutOfRangeException(nameof(method), method, null),
+    };
+
+    private static PaymentMethod DbStringToPaymentMethod(string value) => value switch
+    {
+        "Wallet" => PaymentMethod.Wallet,
+        "COD"    => PaymentMethod.Cod,
+        "Split"  => PaymentMethod.Split,
+        _        => throw new ArgumentOutOfRangeException(nameof(value), value, $"Unknown payment_method: '{value}'"),
+    };
+}

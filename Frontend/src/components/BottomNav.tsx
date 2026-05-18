@@ -1,13 +1,12 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, Search, Heart, Wallet, Settings, Sparkles, Plus } from 'lucide-react';
+import { Home, Search, Heart, Wallet, Settings } from 'lucide-react';
 
 const navItems = [
   { path: '/home', icon: Home, label: 'Home' },
-  { path: '/search', icon: Search, label: 'Search' },
-  { path: '/ai-search', icon: Sparkles, label: 'AI Search' },
-  { path: '/wallet', icon: Wallet, label: 'Wallet' },
-  { path: '/wishlist', icon: Heart, label: 'Wishlist' },
-  { path: '/settings', icon: Settings, label: 'Settings' },
+  { path: '/search', icon: Search, label: 'Orchestrator' },
+  { path: '/wallet', icon: Wallet, label: 'Capital' },
+  { path: '/wishlist', icon: Heart, label: 'Targets' },
+  { path: '/settings', icon: Settings, label: 'Engine' },
 ];
 
 const BottomNav = () => {
@@ -15,58 +14,36 @@ const BottomNav = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40">
-      <div className="bg-card/90 backdrop-blur-xl border-t border-border">
-        <div className="flex items-center justify-around py-2 px-2 max-w-lg mx-auto relative">
-          {navItems.map(({ path, icon: Icon, label }, index) => {
-            const active = location.pathname === path;
-            
-            // Add FAB in the middle (after Wallet, before Wishlist)
-            if (index === 3) {
-              return (
-                <div key={path} className="flex items-center gap-1">
-                  <button
-                    onClick={() => navigate(path)}
-                    className={`flex flex-col items-center gap-0.5 py-1.5 px-3 rounded-xl transition-all ${
-                      active
-                        ? 'text-cobalt-light'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    <Icon className={`w-5 h-5 ${active ? 'drop-shadow-[0_0_6px_hsl(215,100%,60%)]' : ''}`} />
-                    <span className="text-[10px] font-medium">{label}</span>
-                  </button>
-                  
-                  {/* Sell FAB */}
-                  <button
-                    onClick={() => navigate('/sell')}
-                    className="w-12 h-12 -mt-6 bg-gradient-cobalt rounded-full flex items-center justify-center shadow-lg glow-cobalt hover:opacity-90 transition-opacity"
-                  >
-                    <Plus className="w-6 h-6 text-primary-foreground" />
-                  </button>
-                </div>
-              );
-            }
-            
-            return (
-              <button
-                key={path}
-                onClick={() => navigate(path)}
-                className={`flex flex-col items-center gap-0.5 py-1.5 px-3 rounded-xl transition-all ${
-                  active
-                    ? 'text-cobalt-light'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <Icon className={`w-5 h-5 ${active ? 'drop-shadow-[0_0_6px_hsl(215,100%,60%)]' : ''}`} />
-                <span className="text-[10px] font-medium">{label}</span>
-              </button>
-            );
-          })}
-        </div>
+    <div className="fixed bottom-0 left-0 right-0 z-40 bg-background/80 backdrop-blur-md border-t border-border/50">
+      <div className="flex items-center justify-around py-3 px-6 max-w-4xl mx-auto">
+        {navItems.map(({ path, icon: Icon, label }) => {
+          const active = location.pathname === path;
+          
+          return (
+            <button
+              key={path}
+              onClick={() => navigate(path)}
+              className={`flex flex-col items-center gap-1.5 py-2 px-6 rounded-2xl transition-all duration-300 ${
+                active
+                  ? 'text-cobalt bg-cobalt/5 scale-110'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+              }`}
+            >
+              <Icon className={cn(
+                "w-5 h-5 transition-transform",
+                active ? "stroke-[2.5px]" : "stroke-[1.5px]"
+              )} />
+              <span className={cn(
+                "text-[10px] font-black uppercase tracking-widest transition-all",
+                active ? "opacity-100" : "opacity-60"
+              )}>{label}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
 };
 
+import { cn } from '@/lib/utils';
 export default BottomNav;

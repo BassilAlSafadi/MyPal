@@ -29,7 +29,7 @@ public class Order
     public DateTime? UpdatedAt { get; set; }
 
     // -------------------------------------------------------------------------
-    // Destination — snapshotted from User.{GooglePlaceId, Lat, Lng, FormattedAddress}
+    // Destination — snapshotted from User.{GooglePlaceId, Lat, Lng, City, State}
     // at the moment the order is placed. These fields are immutable after creation.
     //
     // Rationale: a FK join to users at query-time would reflect the user's
@@ -53,6 +53,29 @@ public class Order
 
     [Column("destination_address")]
     public string? DestinationAddress { get; set; }
+
+    // -------------------------------------------------------------------------
+    // Uber-style payment split — mirrors SQL check constraints and Go order logic.
+    //
+    // PaymentMethod determines which fields are active:
+    //   Wallet  → wallet_amount_used = total_amount, cod_amount_due = 0
+    //   COD     → cod_amount_due     = total_amount, wallet_amount_used = 0
+    //   Split   → both fields are non-zero and sum to total_amount
+    // -------------------------------------------------------------------------
+
+    /// <summary>Amount deducted from the user's in-app wallet. Zero for COD-only orders.</summary>
+    [Column("wallet_amount_used")]
+    [Precision(15, 2)]
+    public decimal WalletAmountUsed { get; set; } = 0m;
+
+    /// <summary>Amount the rider collects in cash on delivery. Zero for Wallet-only orders.</summary>
+    [Column("cod_amount_due")]
+    [Precision(15, 2)]
+    public decimal CodAmountDue { get; set; } = 0m;
+
+    /// <summary>Payment method for this order. Maps to the SQL CHECK ('Wallet','COD','Split').</summary>
+    [Column("payment_method")]
+    public PaymentMethod? PaymentMethod { get; set; }
 
     public User? User { get; set; }
 

@@ -36,6 +36,15 @@ public class User
     [Column("is_deleted")]
     public bool? IsDeleted { get; set; }
 
+    [Column("is_buyer")]
+    public bool IsBuyer { get; set; } = true;
+
+    [Column("is_seller")]
+    public bool IsSeller { get; set; } = false;
+
+    [Column("roles")]
+    public string[] Roles { get; set; } = ["buyer"];
+
     // -------------------------------------------------------------------------
     // Google Maps location — the user's current saved delivery address.
     // These values are snapshotted into Order.Destination* at CreateOrder time
@@ -55,8 +64,14 @@ public class User
     [Precision(9, 6)]
     public double? Lng { get; set; }
 
-    [Column("formatted_address")]
-    public string? FormattedAddress { get; set; }
+    [Column("city")]
+    public string? City { get; set; }
+
+    [Column("state")]
+    public string? State { get; set; }
+
+    [Column("life_track_story")]
+    public string? LifeTrackStory { get; set; }
 
     public ICollection<Cart> Carts { get; set; } = new List<Cart>();
 
@@ -71,5 +86,9 @@ public class User
     public ICollection<Transaction> Transactions { get; set; } = new List<Transaction>();
 
     public ICollection<Vendor> Vendors { get; set; } = new List<Vendor>();
+
+    public ICollection<UserAlgorithmSteering> AlgorithmSteerings { get; set; } = new List<UserAlgorithmSteering>();
+
+    public ICollection<LifeTrackHistory> LifeTrackHistories { get; set; } = new List<LifeTrackHistory>();
 }
 

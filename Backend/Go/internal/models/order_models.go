@@ -18,8 +18,8 @@ type Order struct {
 	CreatedAt   *time.Time `db:"created_at"   json:"created_at"`
 	UpdatedAt   *time.Time `db:"updated_at"   json:"updated_at"`
 
-	// Destination — snapshotted from User.{GooglePlaceID, Lat, Lng, FormattedAddress}
-	// at the time the order was placed. Never updated after creation.
+	// Destination — snapshotted from User location fields at order placement.
+	// Never updated after creation.
 	DestinationGooglePlaceID *string  `db:"destination_google_place_id" json:"destination_google_place_id"`
 	DestinationLat           *float64 `db:"destination_lat"             json:"destination_lat"`
 	DestinationLng           *float64 `db:"destination_lng"             json:"destination_lng"`
@@ -41,5 +41,19 @@ func (o *Order) SnapshotUserLocation(u *User) {
 	o.DestinationGooglePlaceID = u.GooglePlaceID
 	o.DestinationLat = u.Lat
 	o.DestinationLng = u.Lng
-	o.DestinationAddress = u.FormattedAddress
+	o.DestinationAddress = joinCityStateLine(u.City, u.State)
+}
+
+func joinCityStateLine(city, state *string) *string {
+	switch {
+	case city != nil && state != nil:
+		s := *city + ", " + *state
+		return &s
+	case city != nil:
+		return city
+	case state != nil:
+		return state
+	default:
+		return nil
+	}
 }

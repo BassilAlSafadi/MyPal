@@ -1,0 +1,9 @@
+fetchRetries: 12
+fetchRetryFactor: 2
+fetchRetryMaxtimeout: 300000
+fetchRetryMintimeout: 20000
+fetchTimeout: 600000
+frozenLockfile: false
+ignoreScripts: true
+networkConcurrency: 2
+preferOffline: true

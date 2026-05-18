@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Phone, ArrowRight } from 'lucide-react';
+import { Mail, Lock, ArrowRight, ShieldCheck, User } from 'lucide-react';
 import LogoIcon from '@/components/LogoIcon';
+import { authService } from '@/services/authService';
 
 const GoogleIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24">
@@ -29,49 +30,61 @@ const GoogleIcon = () => (
 
 const SignupScreen = () => {
   const navigate = useNavigate();
-  const login = useAuthStore((s) => s.login);
-  const [phone, setPhone] = useState('');
+  const setUser = useAuthStore((s) => s.setUser);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const passwordChecks = useMemo(() => ({
+    minLength: password.length >= 8,
+    hasNumber: /\d/.test(password),
+    hasSpecial: /[^A-Za-z0-9]/.test(password),
+  }), [password]);
+
+  const canSubmit = name.length > 1 && email.includes('@') && passwordChecks.minLength && passwordChecks.hasNumber && passwordChecks.hasSpecial;
+
   const handleGoogleSignup = () => {
-    // Mock Google signup - sets session and redirects
-    login('+1 (555) 000-0000');
-    navigate('/home');
+    authService.loginWithGoogle();
   };
 
-  const handleSendCode = () => {
-    if (phone.length < 6) {
-      setError('Please enter a valid phone number');
-      return;
-    }
+  const handleSignup = async () => {
+    if (!canSubmit) return;
+    setLoading(true);
     setError('');
-    // Navigate to verify screen with isNewUser flag
-    navigate('/verify', { state: { phone, isNewUser: true } });
+    try {
+      const user = await authService.signUpWithEmail(email, password, name.trim());
+      setUser(user); 
+      navigate('/home');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to create account');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm space-y-8 animate-fade-in-up">
-        {/* Logo and Title */}
         <div className="text-center space-y-4">
           <div className="flex justify-center">
             <LogoIcon size={64} showWordmark={false} />
           </div>
-          <h1 className="text-2xl font-serif font-bold text-foreground">Create Account</h1>
-          <p className="text-sm text-muted-foreground">Join MyPal to start buying and selling</p>
+          <h1 className="text-2xl font-serif font-bold text-foreground">Create your account</h1>
+          <p className="text-sm text-muted-foreground">Start your AI-powered discovery journey</p>
         </div>
 
-        {/* Google Signup */}
         <Button
           onClick={handleGoogleSignup}
           variant="outline"
+          disabled={loading}
           className="w-full h-12 gap-3 text-foreground border-border hover:bg-secondary"
         >
           <GoogleIcon />
-          Continue with Google
+          Sign up with Google
         </Button>
 
-        {/* Divider */}
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
             <span className="w-full border-t border-border" />
@@ -81,37 +94,87 @@ const SignupScreen = () => {
           </div>
         </div>
 
-        {/* Phone Signup */}
         <div className="space-y-4">
-          <div className="glass-card p-4 space-y-3">
-            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Phone Number
-            </label>
-            <div className="flex items-center gap-2">
-              <Phone className="w-4 h-4 text-cobalt-light flex-shrink-0" />
-              <Input
-                type="tel"
-                placeholder="+1 (555) 000-0000"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSendCode()}
-                className="bg-transparent border-none text-foreground placeholder:text-muted-foreground focus-visible:ring-0"
-              />
+          <div className="glass-card p-4 space-y-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                Full Name
+              </label>
+              <div className="flex items-center gap-3 px-1">
+                <User className="w-4 h-4 text-cobalt-light" />
+                <Input
+                  placeholder="John Doe"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="bg-transparent border-none p-0 h-auto text-sm focus-visible:ring-0"
+                />
+              </div>
+            </div>
+
+            <div className="h-[1px] bg-border/50" />
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                Email Address
+              </label>
+              <div className="flex items-center gap-3 px-1">
+                <Mail className="w-4 h-4 text-cobalt-light" />
+                <Input
+                  type="email"
+                  placeholder="name@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="bg-transparent border-none p-0 h-auto text-sm focus-visible:ring-0"
+                />
+              </div>
+            </div>
+
+            <div className="h-[1px] bg-border/50" />
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                Password
+              </label>
+              <div className="flex items-center gap-3 px-1">
+                <Lock className="w-4 h-4 text-cobalt-light" />
+                <Input
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSignup()}
+                  className="bg-transparent border-none p-0 h-auto text-sm focus-visible:ring-0"
+                />
+              </div>
             </div>
           </div>
-          {error && <p className="text-xs text-destructive">{error}</p>}
+
+          <div className="grid grid-cols-1 gap-1.5 px-1">
+            <div className={`flex items-center gap-2 text-[10px] font-medium ${passwordChecks.minLength ? 'text-emerald-500' : 'text-slate-400'}`}>
+              <ShieldCheck className="w-3 h-3" /> 8+ Characters
+            </div>
+            <div className={`flex items-center gap-2 text-[10px] font-medium ${passwordChecks.hasNumber ? 'text-emerald-500' : 'text-slate-400'}`}>
+              <ShieldCheck className="w-3 h-3" /> Includes Number
+            </div>
+            <div className={`flex items-center gap-2 text-[10px] font-medium ${passwordChecks.hasSpecial ? 'text-emerald-500' : 'text-slate-400'}`}>
+              <ShieldCheck className="w-3 h-3" /> Includes Special Char
+            </div>
+          </div>
+
+          {error && <p className="text-xs text-destructive text-center">{error}</p>}
+          
           <Button
-            onClick={handleSendCode}
-            className="w-full bg-gradient-cobalt hover:opacity-90 text-primary-foreground gap-2"
+            onClick={handleSignup}
+            disabled={!canSubmit || loading}
+            className="w-full bg-gradient-cobalt hover:opacity-90 text-primary-foreground h-12 rounded-xl gap-2 shadow-lg shadow-cobalt/20"
           >
-            Send Code <ArrowRight className="w-4 h-4" />
+            {loading ? 'Creating Account...' : 'Create Account'} <ArrowRight className="w-4 h-4" />
           </Button>
         </div>
 
-        {/* Login link */}
         <p className="text-center text-sm text-muted-foreground">
           Already have an account?{' '}
-          <Link to="/login" className="text-cobalt-light hover:underline">
+          <Link to="/login" className="text-cobalt-light hover:underline font-medium">
             Log in
           </Link>
         </p>

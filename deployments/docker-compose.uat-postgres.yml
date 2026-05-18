@@ -1,0 +1,24 @@
+# Local Postgres for UAT / survivability tests.
+# Usage:
+#   docker compose -f deployments/docker-compose.uat-postgres.yml up -d
+#   $env:POSTGRES_URL = "postgresql://postgres:postgres@localhost:5432/mypal"
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mypal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mypal"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - mypal_uat_pgdata:/var/lib/postgresql/data
+
+volumes:
+  mypal_uat_pgdata:
