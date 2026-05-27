@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"mypal/api/go/internal/gateway/agentic"
 	"mypal/api/go/internal/gateway/auth"
 	"mypal/api/go/internal/gateway/checkout"
 	gconfig "mypal/api/go/internal/gateway/config"
@@ -27,6 +28,7 @@ import (
 	"mypal/api/go/internal/gateway/saga"
 	"mypal/api/go/internal/gateway/search"
 	"mypal/api/go/internal/gateway/tracing"
+	"mypal/api/go/internal/service"
 )
 
 const gatewayVersion = "1.0.0-phase1"
@@ -193,7 +195,20 @@ func buildRoutes(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Poo
 	mux.Handle("POST /api/v1/search", searchStack(search.Handler(searchCfg)))
 
 	// ----------------------------------------------------------------
+	// Agentic AI — Go-native handlers (validated here, LLM work in Node)
+	// These specific patterns take priority over the generic /api/v1/ai/ proxy below.
+	// ----------------------------------------------------------------
+	agenticSvc := service.NewAgenticOrchestrator(cfg.Upstreams.NodeOrchestrator)
+
+	mux.Handle("POST /api/v1/ai/agentic/deep-search", authenticated(agentic.DeepSearchHandler(agenticSvc)))
+	mux.Handle("POST /api/v1/ai/agentic/fast-search", authenticated(agentic.FastSearchHandler(agenticSvc)))
+	mux.Handle("POST /api/v1/ai/agentic/translate", authenticated(agentic.TranslateHandler(agenticSvc)))
+	mux.Handle("POST /api/v1/ai/agentic/summarize", authenticated(agentic.SummarizeHandler(agenticSvc)))
+	mux.Handle("POST /api/v1/ai/agentic/recommend", authenticated(agentic.RecommendHandler(agenticSvc)))
+
+	// ----------------------------------------------------------------
 	// AI & LLM Orchestration → Node Orchestrator  (authenticated)
+	// Generic catch-all proxy for all other /ai/* and /agent/* routes.
 	// ----------------------------------------------------------------
 	mux.Handle("/api/v1/ai/summaries/", authenticated(nodeProxy.HandlerWithRewrite("/api/v1/ai", "")))
 	mux.Handle("/api/v1/ai/", authenticated(nodeProxy.Handler("/api/v1")))
