@@ -25,7 +25,31 @@ function getPool() {
   return pgPool;
 }
 
-// ── Health ────────────────────────────────────────────────────────────────────
+// ── Health / root ─────────────────────────────────────────────────────────────
+
+router.get('/', (_req, res) =>
+  res.json({
+    service: 'MyPal LLM Orchestrator',
+    version: '2.0.0',
+    status: 'ok',
+    endpoints: [
+      'POST /ai/deep-search',
+      'POST /ai/fast-search',
+      'POST /ai/translate',
+      'POST /ai/summarize',
+      'POST /ai/product/ask',
+      'POST /ai/scraped/clean',
+      'POST /ai/recommend',
+      'POST /agent/orchestrate',
+      'POST /summaries/map',
+      'POST /summaries/reduce',
+      'POST /seller/listing/analyze',
+      'POST /seller/report/generate',
+      'GET  /seller-report/:sellerId',
+      'GET  /health',
+    ],
+  }),
+);
 
 router.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
