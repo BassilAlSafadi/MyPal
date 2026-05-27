@@ -148,7 +148,7 @@ func buildRoutes(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Poo
 			{Name: "csharp-main-api", HealthURL: cfg.Upstreams.CSharpMainAPI + "/", Timeout: 3 * time.Second},
 			{Name: "go-support", HealthURL: cfg.Upstreams.GoSupportService + "/health", Timeout: 3 * time.Second},
 			{Name: "node-orchestrator", HealthURL: cfg.Upstreams.NodeOrchestrator + "/health", Timeout: 3 * time.Second},
-			{Name: "python-prodbert", HealthURL: cfg.Upstreams.PythonProdBERT + "/health", Timeout: 3 * time.Second},
+			{Name: "go-embed", HealthURL: cfg.Upstreams.PythonProdBERT + "/health", Timeout: 3 * time.Second},
 		}),
 	))
 

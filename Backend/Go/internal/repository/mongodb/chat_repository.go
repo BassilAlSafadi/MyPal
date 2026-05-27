@@ -2,10 +2,6 @@ package mongodb
 
 import (
 	"context"
-<<<<<<< HEAD
-
-=======
->>>>>>> AI-Features
 	"mypal/api/go/internal/models"
 )
 
