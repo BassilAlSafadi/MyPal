@@ -12,7 +12,7 @@ app.use(cors());
 app.use(bodyParser.json({ limit: '1mb' }));
 
 const PORT = process.env.NODE_ORCHESTRATOR_PORT || 5003;
-const MONGO_URL = process.env.MONGO_URL || 'mongodb://localhost:27017/mypal_audit';
+const MONGO_URL = process.env.MONGO_URL || process.env.MONGO_URI || 'mongodb://localhost:27017/mypal_audit';
 
 mongoose
   .connect(MONGO_URL)

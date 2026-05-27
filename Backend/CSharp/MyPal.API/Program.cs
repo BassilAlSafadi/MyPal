@@ -1,3 +1,4 @@
+using System.IO;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication;
@@ -10,6 +11,7 @@ using MyPal.Infrastructure.Data;
 using MyPal.Infrastructure.Data.Entities;
 using MyPal.Infrastructure.Data.Entities.Enums;
 
+LoadDotEnv(Directory.GetCurrentDirectory());
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddEnvironmentVariables();
 
@@ -28,18 +30,28 @@ builder.Services.AddDbContext<MyPalDbContext>(options =>
 
 builder.Services.AddScoped<IJwtService, JwtService>();
 
-builder.Services.AddAuthentication(options =>
+string? googleClientId = builder.Configuration["GOOGLE_CLIENT_ID"];
+string? googleClientSecret = builder.Configuration["GOOGLE_CLIENT_SECRET"];
+var googleConfigured = !string.IsNullOrWhiteSpace(googleClientId) && !string.IsNullOrWhiteSpace(googleClientSecret);
+
+var authBuilder = builder.Services.AddAuthentication(options =>
 {
     options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = GoogleDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = googleConfigured
+        ? GoogleDefaults.AuthenticationScheme
+        : CookieAuthenticationDefaults.AuthenticationScheme;
 })
-.AddCookie()
-.AddGoogle(options =>
+.AddCookie();
+
+if (googleConfigured)
 {
-    options.ClientId = builder.Configuration["GOOGLE_CLIENT_ID"] ?? "placeholder";
-    options.ClientSecret = builder.Configuration["GOOGLE_CLIENT_SECRET"] ?? "placeholder";
-    options.CallbackPath = "/api/auth/google/callback";
-});
+    authBuilder.AddGoogle(options =>
+    {
+        options.ClientId = googleClientId!;
+        options.ClientSecret = googleClientSecret!;
+        options.CallbackPath = "/api/auth/google/callback";
+    });
+}
 
 builder.Services.AddAuthorization();
 
@@ -50,6 +62,38 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapGet("/", () => $"C# Backend running! Postgres Configured: {!string.IsNullOrEmpty(connectionString)}");
+
+static void LoadDotEnv(string contentRootPath)
+{
+    var possiblePaths = new[]
+    {
+        Path.Combine(contentRootPath, ".env"),
+        Path.GetFullPath(Path.Combine(contentRootPath, "..", "..", "..", ".env"))
+    };
+
+    foreach (var path in possiblePaths)
+    {
+        if (!File.Exists(path)) continue;
+
+        foreach (var rawLine in File.ReadLines(path))
+        {
+            var line = rawLine.Trim();
+            if (string.IsNullOrEmpty(line) || line.StartsWith("#")) continue;
+            var separatorIndex = line.IndexOf('=');
+            if (separatorIndex <= 0) continue;
+
+            var key = line[..separatorIndex].Trim();
+            var value = line[(separatorIndex + 1)..].Trim().Trim('"');
+            if (string.IsNullOrEmpty(key)) continue;
+            if (Environment.GetEnvironmentVariable(key) is null)
+            {
+                Environment.SetEnvironmentVariable(key, value);
+            }
+        }
+
+        break;
+    }
+}
 
 // ─── Auth ──────────────────────────────────────────────────────────────────
 

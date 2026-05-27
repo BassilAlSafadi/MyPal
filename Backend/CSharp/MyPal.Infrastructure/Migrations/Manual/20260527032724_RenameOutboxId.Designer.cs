@@ -2,18 +2,21 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MyPal.Infrastructure.Data;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace MyPal.Infrastructure.Data.Migrations
+namespace MyPal.Infrastructure.Migrations.Manual
 {
     [DbContext(typeof(MyPalDbContext))]
-    partial class MyPalDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260527032724_RenameOutboxId")]
+    partial class RenameOutboxId
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

@@ -37,16 +37,3 @@ G:/MyPal/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/ref/MyPal.In
 /workspaces/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/refint/MyPal.Infrastructure.dll
 /workspaces/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/MyPal.Infrastructure.pdb
 /workspaces/MyPal/Backend/CSharp/MyPal.Infrastructure/obj/Debug/net9.0/ref/MyPal.Infrastructure.dll
-G:\MyPal\MyPal\Backend\CSharp\MyPal.Infrastructure\bin\Debug\net9.0\MyPal.Infrastructure.deps.json
-G:\MyPal\MyPal\Backend\CSharp\MyPal.Infrastructure\bin\Debug\net9.0\MyPal.Infrastructure.dll
-G:\MyPal\MyPal\Backend\CSharp\MyPal.Infrastructure\bin\Debug\net9.0\MyPal.Infrastructure.pdb
-G:\MyPal\MyPal\Backend\CSharp\MyPal.Infrastructure\obj\Debug\net9.0\MyPal.Infrastructure.csproj.AssemblyReference.cache
-G:\MyPal\MyPal\Backend\CSharp\MyPal.Infrastructure\obj\Debug\net9.0\MyPal.Infrastructure.GeneratedMSBuildEditorConfig.editorconfig
-G:\MyPal\MyPal\Backend\CSharp\MyPal.Infrastructure\obj\Debug\net9.0\MyPal.Infrastructure.AssemblyInfoInputs.cache
-G:\MyPal\MyPal\Backend\CSharp\MyPal.Infrastructure\obj\Debug\net9.0\MyPal.Infrastructure.AssemblyInfo.cs
-G:\MyPal\MyPal\Backend\CSharp\MyPal.Infrastructure\obj\Debug\net9.0\MyPal.Infrastructure.csproj.CoreCompileInputs.cache
-G:\MyPal\MyPal\Backend\CSharp\MyPal.Infrastructure\obj\Debug\net9.0\MyPal.Infrastructure.sourcelink.json
-G:\MyPal\MyPal\Backend\CSharp\MyPal.Infrastructure\obj\Debug\net9.0\MyPal.Infrastructure.dll
-G:\MyPal\MyPal\Backend\CSharp\MyPal.Infrastructure\obj\Debug\net9.0\refint\MyPal.Infrastructure.dll
-G:\MyPal\MyPal\Backend\CSharp\MyPal.Infrastructure\obj\Debug\net9.0\MyPal.Infrastructure.pdb
-G:\MyPal\MyPal\Backend\CSharp\MyPal.Infrastructure\obj\Debug\net9.0\ref\MyPal.Infrastructure.dll
