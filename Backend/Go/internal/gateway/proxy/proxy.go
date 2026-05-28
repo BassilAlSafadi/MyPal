@@ -142,6 +142,13 @@ func copyHeaders(dst, src *http.Request) {
 		"content-length":  true,
 		"accept-encoding": true,
 		"user-agent":      true,
+		// Trusted identity headers set by JWTValidation after the token is verified.
+		// Inbound client-supplied X-User-* are stripped upstream (stripIdentityHeaders),
+		// so only gateway-validated values reach here. Upstreams (e.g. C# ResolveUserAsync)
+		// read X-User-Id for identity — without forwarding these, every authed route 401s.
+		"x-user-id":    true,
+		"x-user-roles": true,
+		"x-user-email": true,
 	}
 	for key, vals := range src.Header {
 		if allow[strings.ToLower(key)] {

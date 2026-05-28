@@ -11,6 +11,12 @@ using MyPal.Infrastructure.Data;
 using MyPal.Infrastructure.Data.Entities;
 using MyPal.Infrastructure.Data.Entities.Enums;
 
+// The Supabase schema stores created_at/updated_at as `timestamp without time zone`,
+// while the domain code assigns DateTime.UtcNow (Kind=Utc). Npgsql 6+ rejects writing a
+// UTC DateTime to a non-tz column. Legacy timestamp behavior maps both the way EF expects
+// without retyping every timestamp column across all entities. Must run before any Npgsql use.
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
 LoadDotEnv(Directory.GetCurrentDirectory());
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddEnvironmentVariables();
@@ -24,9 +30,20 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.KnownProxies.Clear();
 });
 
-var connectionString = builder.Configuration["POSTGRES_SESSION_URL"] ?? builder.Configuration["POSTGRES_URL"];
+// Resolution order (first non-empty wins):
+//   1. POSTGRES_SESSION_URL   – Supabase session-mode / PgBouncer
+//   2. POSTGRES_URL           – standard connection URL env var
+//   3. ConnectionStrings:DefaultConnection – appsettings / dev override
+var connectionString =
+    builder.Configuration["POSTGRES_SESSION_URL"]
+    ?? builder.Configuration["POSTGRES_URL"]
+    ?? builder.Configuration.GetConnectionString("DefaultConnection");
+
 builder.Services.AddDbContext<MyPalDbContext>(options =>
-    options.UseNpgsql(connectionString));
+{
+    var cs = connectionString ?? "Host=localhost;Port=5432;Database=mypal;Username=postgres;Password=postgres";
+    options.UseNpgsql(cs);
+});
 
 builder.Services.AddScoped<IJwtService, JwtService>();
 
@@ -61,7 +78,31 @@ app.UseForwardedHeaders();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/", () => $"C# Backend running! Postgres Configured: {!string.IsNullOrEmpty(connectionString)}");
+app.MapGet("/", async (MyPalDbContext db) =>
+{
+    var dbOk = false;
+    var dbError = "";
+    try { dbOk = await db.Database.CanConnectAsync(); }
+    catch (Exception ex) { dbError = ex.Message.Split('\n')[0]; }
+
+    return Results.Json(new
+    {
+        service   = "MyPal C# API",
+        status    = dbOk ? "ok" : "degraded",
+        version   = "1.0.0",
+        postgres  = new { configured = !string.IsNullOrEmpty(connectionString), connected = dbOk, error = dbError.Length > 0 ? dbError : null },
+        endpoints = new[]
+        {
+            "POST /api/auth/signup", "POST /api/auth/login", "POST /api/auth/refresh", "POST /api/auth/logout",
+            "GET  /api/auth/google/login",
+            "GET  /api/users/me", "PUT /api/users/me", "PATCH /api/users/me/location",
+            "GET  /api/products", "GET /api/products/{id}", "POST /api/products", "PUT /api/products/{id}", "DELETE /api/products/{id}",
+            "GET  /api/orders", "GET /api/orders/{id}", "POST /api/orders",
+            "GET  /api/cart", "POST /api/cart/items", "DELETE /api/cart/items/{productId}",
+            "GET  /api/notifications", "PATCH /api/notifications/{id}/read",
+        }
+    });
+});
 
 static void LoadDotEnv(string contentRootPath)
 {

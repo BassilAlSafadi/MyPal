@@ -33,12 +33,16 @@ public class JwtService : IJwtService
         var claims = new List<Claim>
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            // NOTE: JwtRegisteredClaimNames.Email already serializes to the "email" claim.
+            // Do NOT add a second new Claim("email", ...) — duplicate claims serialize as a
+            // JSON array, which breaks the Go gateway's string `email` claim unmarshal (401).
             new Claim(JwtRegisteredClaimNames.Email, user.Email),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            new Claim("email", user.Email),
             new Claim("roles", string.Join(",", user.Roles)),
-            new Claim("is_buyer", user.IsBuyer.ToString().ToLower()),
-            new Claim("is_seller", user.IsSeller.ToString().ToLower())
+            // Emit as JSON booleans (ClaimValueTypes.Boolean), not strings — the Go gateway
+            // unmarshals is_buyer/is_seller into Go `bool`, which rejects "true"/"false" strings.
+            new Claim("is_buyer", user.IsBuyer ? "true" : "false", ClaimValueTypes.Boolean),
+            new Claim("is_seller", user.IsSeller ? "true" : "false", ClaimValueTypes.Boolean)
         };
 
         var token = new JwtSecurityToken(

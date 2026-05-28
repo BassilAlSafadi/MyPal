@@ -11,9 +11,9 @@ using System;
 using System.Reflection;
 
 [assembly: System.Reflection.AssemblyCompanyAttribute("MyPal.Infrastructure")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
+[assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+df487f55cc8c460ae42043c8df89900af7b43757")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ee7bd6d85ba0f3159fea8fd580f8ca282205b7b3")]
 [assembly: System.Reflection.AssemblyProductAttribute("MyPal.Infrastructure")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MyPal.Infrastructure")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
