@@ -1,7 +1,7 @@
 const requiredEnvKeys = ['VITE_API_GATEWAY'] as const;
 
 export const env = {
-  API_GATEWAY: import.meta.env.VITE_API_GATEWAY || 'http://localhost:8080',
+  API_GATEWAY: import.meta.env.VITE_API_GATEWAY ?? '',
   IS_DEV: import.meta.env.DEV,
 };
 
