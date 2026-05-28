@@ -264,26 +264,28 @@ const AISearchScreen = () => {
                         <div className="w-2 h-2 rounded-full bg-cobalt-light" />
                         <p className="text-xs font-semibold text-cobalt-light">Available on MyPal</p>
                       </div>
-                      <div className="flex gap-2.5 overflow-x-auto scrollbar-hide -mx-1 px-1">
+                      <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-4 px-4">
                         {message.mypalProducts.map((product) => (
                           <div
                             key={product.id}
-                            className="flex-shrink-0 w-36 border border-cobalt-light/25 bg-cobalt-light/5 rounded-xl p-2.5"
+                            className="flex-shrink-0 w-36 bg-secondary rounded-xl overflow-hidden"
                           >
-                            <div className="w-9 h-9 rounded-lg bg-cobalt-light/10 flex items-center justify-center mb-2">
-                              <ShoppingBag className="w-4 h-4 text-cobalt-light" />
+                            {/* Image placeholder */}
+                            <div className="relative aspect-square bg-cobalt-light/10 flex items-center justify-center">
+                              <ShoppingBag className="w-8 h-8 text-cobalt-light/50" />
+                              <div className="absolute top-1.5 left-1.5 flex items-center gap-1 bg-background/90 backdrop-blur-sm rounded-full px-1.5 py-0.5">
+                                <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                                <span className="text-[9px] text-green-600 font-semibold">In Store</span>
+                              </div>
                             </div>
-                            <p className="text-xs text-foreground font-medium line-clamp-2 leading-tight mb-1.5">
-                              {product.title}
-                            </p>
-                            {product.category && (
-                              <p className="text-[10px] text-muted-foreground mb-1.5">
-                                {product.category}
+                            {/* Info */}
+                            <div className="p-2">
+                              <p className="text-xs text-foreground line-clamp-2 leading-tight mb-1">
+                                {product.title}
                               </p>
-                            )}
-                            <div className="flex items-center gap-1">
-                              <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                              <span className="text-[10px] text-green-600 font-medium">In Store</span>
+                              {product.category && (
+                                <p className="text-[10px] text-muted-foreground">{product.category}</p>
+                              )}
                             </div>
                           </div>
                         ))}
