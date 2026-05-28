@@ -1,116 +1,139 @@
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Send, Sparkles, RotateCcw, Globe, ExternalLink, Heart } from 'lucide-react';
+import { Send, Sparkles, RotateCcw, Zap, ShoppingBag, ExternalLink, Globe } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
 import BottomNav from '@/components/BottomNav';
-import { useMockStore } from '@/lib/useMockStore';
 import { cn } from '@/lib/utils';
+import { searchService, SearchModel, ExternalProduct } from '@/services/searchService';
+
+// ── Pro quota ─────────────────────────────────────────────────────────────────
+
+const PRO_QUOTA = 3;
+
+function getProUsage(): { date: string; count: number } {
+  const today = new Date().toISOString().split('T')[0];
+  try {
+    const stored = JSON.parse(localStorage.getItem('mypal_pro_quota') ?? '{}') as {
+      date?: string;
+      count?: number;
+    };
+    if (stored.date === today) return { date: today, count: stored.count ?? 0 };
+  } catch {}
+  return { date: today, count: 0 };
+}
+
+function consumeProQuota(): number {
+  const usage = getProUsage();
+  const next = { date: usage.date, count: usage.count + 1 };
+  localStorage.setItem('mypal_pro_quota', JSON.stringify(next));
+  return next.count;
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface MyPalProduct {
+  id: string;
+  title: string;
+  category?: string;
+  score?: number;
+}
 
 interface Message {
   id: string;
   type: 'user' | 'ai';
   content: string;
-  products?: Product[];
-  sources?: { name: string; url: string }[];
+  model?: SearchModel;
+  mypalProducts?: MyPalProduct[];
+  products?: ExternalProduct[];
   suggestions?: string[];
   timestamp: Date;
 }
 
-const mockSources = [
-  { name: 'TechRadar', url: 'https://techradar.com' },
-  { name: 'CNET', url: 'https://cnet.com' },
-  { name: 'The Verge', url: 'https://theverge.com' },
-  { name: 'Tom\'s Guide', url: 'https://tomsguide.com' },
-  { name: 'PCMag', url: 'https://pcmag.com' },
-];
-
-import { searchService } from '@/services/searchService';
-import type { Product } from '@/mock/products';
-
+// ── Component ─────────────────────────────────────────────────────────────────
 
 const AISearchScreen = () => {
-  const navigate = useNavigate();
-  const { wishlist, addToWishlist, removeFromWishlist } = useMockStore();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [model, setModel] = useState<SearchModel>('fast');
+  const [proUsageCount, setProUsageCount] = useState(() => getProUsage().count);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const proRemaining = Math.max(0, PRO_QUOTA - proUsageCount);
+  const proQuotaFull = proUsageCount >= PRO_QUOTA;
 
   useEffect(() => {
-    scrollToBottom();
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const handleSend = async () => {
-    if (!input.trim()) return;
+    const query = input.trim();
+    if (!query || isTyping) return;
+    if (model === 'pro' && proQuotaFull) return;
 
-    const userMessage: Message = {
+    const userMsg: Message = {
       id: `msg-${Date.now()}`,
       type: 'user',
-      content: input.trim(),
+      content: query,
+      model,
       timestamp: new Date(),
     };
-
-    setMessages((prev) => [...prev, userMessage]);
-    const currentInput = input.trim();
+    setMessages((prev) => [...prev, userMsg]);
     setInput('');
     setIsTyping(true);
 
     try {
-      const results = await searchService.performGlobalAgenticSearch(currentInput, (log) => {
-        // Option: show progress logs in the UI
-        console.log(`[AI Progress] ${log}`);
-      });
+      // Step 1 — RAG: query the MyPal DB first
+      const internalResults = await searchService.performInternalSearch(query);
 
-      const aiMessage: Message = {
+      // Step 2 — AI search with RAG context
+      const aiResult = await searchService.performAISearch(query, model, internalResults);
+
+      // Deduct Pro quota only on success
+      if (model === 'pro') {
+        setProUsageCount(consumeProQuota());
+      }
+
+      const mypalProducts: MyPalProduct[] = internalResults.slice(0, 5).map((r) => ({
+        id: r.id,
+        title: r.title,
+        category: r.category,
+        score: r.score,
+      }));
+
+      const fallbackText =
+        internalResults.length > 0
+          ? `Found ${internalResults.length} matching product${internalResults.length === 1 ? '' : 's'} in MyPal for "${query}".`
+          : `No exact MyPal match for "${query}". Try Pro for a deeper web search.`;
+
+      const aiMsg: Message = {
         id: `msg-ai-${Date.now()}`,
         type: 'ai',
-        content: results.length > 0 
-          ? `I found ${results.length} relevant products for you based on your request.`
-          : `I couldn't find exact matches for "${currentInput}", but here are some suggestions.`,
-        products: results,
-        timestamp: new Date(),
-        suggestions: [
-          'Compare these options',
-          'Show cheaper alternatives',
-          'Tell me more about the first one'
-        ]
-      };
-      
-      setMessages((prev) => [...prev, aiMessage]);
-    } catch (err) {
-      const errorMessage: Message = {
-        id: `msg-err-${Date.now()}`,
-        type: 'ai',
-        content: 'I encountered an error while searching. Please try again in a moment.',
+        content: aiResult.text || fallbackText,
+        model,
+        mypalProducts: mypalProducts.length > 0 ? mypalProducts : undefined,
+        products: aiResult.products.length > 0 ? aiResult.products : undefined,
+        suggestions: ['Tell me more about the first one', 'Show cheaper alternatives', 'Compare these options'],
         timestamp: new Date(),
       };
-      setMessages((prev) => [...prev, errorMessage]);
+      setMessages((prev) => [...prev, aiMsg]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `msg-err-${Date.now()}`,
+          type: 'ai',
+          content: 'Search failed. Please try again in a moment.',
+          timestamp: new Date(),
+        },
+      ]);
     } finally {
       setIsTyping(false);
     }
   };
 
-  const handleSuggestionClick = (suggestion: string) => {
-    setInput(suggestion);
-  };
-
   const handleNewSearch = () => {
     setMessages([]);
     setInput('');
-  };
-
-  const toggleWishlist = (productId: string) => {
-    if (wishlist.includes(productId)) {
-      removeFromWishlist(productId);
-    } else {
-      addToWishlist(productId);
-    }
   };
 
   return (
@@ -122,9 +145,12 @@ const AISearchScreen = () => {
           <h1 className="text-lg font-serif font-bold text-foreground">AI Search</h1>
         </div>
         {messages.length > 0 && (
-          <Button variant="ghost" size="sm" onClick={handleNewSearch} className="gap-1.5">
-            <RotateCcw className="w-4 h-4" /> New Search
-          </Button>
+          <button
+            onClick={handleNewSearch}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <RotateCcw className="w-4 h-4" /> New
+          </button>
         )}
       </div>
 
@@ -135,97 +161,77 @@ const AISearchScreen = () => {
             <div className="w-16 h-16 rounded-full bg-cobalt-light/10 flex items-center justify-center mb-4">
               <Sparkles className="w-8 h-8 text-cobalt-light" />
             </div>
-            <h2 className="text-xl font-serif font-bold text-foreground mb-2">
-              Ask me anything
-            </h2>
+            <h2 className="text-xl font-serif font-bold text-foreground mb-2">Ask me anything</h2>
             <p className="text-sm text-muted-foreground max-w-xs mb-6">
-              Describe what you&apos;re looking for in natural language and I&apos;ll help you find the best products.
+              Describe what you&apos;re looking for and I&apos;ll search MyPal and the web for you.
             </p>
             <div className="flex flex-wrap gap-2 justify-center max-w-sm">
-              {['Best laptop under $1000', 'Wireless earbuds for running', 'Gift ideas for gamers'].map((suggestion) => (
-                <button
-                  key={suggestion}
-                  onClick={() => setInput(suggestion)}
-                  className="text-xs px-3 py-1.5 glass-card text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  {suggestion}
-                </button>
-              ))}
+              {['Best laptop under $1000', 'Wireless earbuds for running', 'Gift ideas for gamers'].map(
+                (s) => (
+                  <button
+                    key={s}
+                    onClick={() => setInput(s)}
+                    className="text-xs px-3 py-1.5 glass-card text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {s}
+                  </button>
+                ),
+              )}
             </div>
           </div>
         ) : (
           messages.map((message) => (
             <div
               key={message.id}
-              className={cn(
-                "flex",
-                message.type === 'user' ? 'justify-end' : 'justify-start'
-              )}
+              className={cn('flex', message.type === 'user' ? 'justify-end' : 'justify-start')}
             >
               {message.type === 'user' ? (
-                <div className="bg-gradient-cobalt text-primary-foreground px-4 py-2 rounded-2xl rounded-br-sm max-w-[80%]">
+                /* User bubble */
+                <div className="bg-gradient-cobalt text-primary-foreground px-4 py-2.5 rounded-2xl rounded-br-sm max-w-[80%]">
                   <p className="text-sm">{message.content}</p>
-                </div>
-              ) : (
-                <div className="glass-card p-4 rounded-2xl rounded-bl-sm max-w-[90%] space-y-4">
-                  {/* Summary */}
-                  <p className="text-sm text-foreground leading-relaxed">{message.content}</p>
-
-                  {/* Sources */}
-                  {message.sources && message.sources.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground font-medium">Sources</p>
-                      <div className="flex flex-wrap gap-2">
-                        {message.sources.map((source) => (
-                          <span
-                            key={source.name}
-                            className="text-xs px-2 py-1 bg-secondary rounded-full flex items-center gap-1 text-muted-foreground"
-                          >
-                            <Globe className="w-3 h-3" />
-                            {source.name}
-                          </span>
-                        ))}
-                      </div>
+                  {message.model && (
+                    <div className="flex items-center gap-1 mt-1 opacity-60">
+                      {message.model === 'fast' ? (
+                        <Zap className="w-2.5 h-2.5" />
+                      ) : (
+                        <Sparkles className="w-2.5 h-2.5" />
+                      )}
+                      <span className="text-[10px] capitalize">{message.model}</span>
                     </div>
                   )}
+                </div>
+              ) : (
+                /* AI bubble */
+                <div className="glass-card p-4 rounded-2xl rounded-bl-sm max-w-[92%] space-y-4">
+                  <p className="text-sm text-foreground leading-relaxed">{message.content}</p>
 
-                  {/* Products */}
-                  {message.products && message.products.length > 0 && (
+                  {/* ── MyPal internal products (RAG) ─────────────── */}
+                  {message.mypalProducts && message.mypalProducts.length > 0 && (
                     <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground font-medium">Products</p>
-                      <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-1 px-1">
-                        {message.products.map((product) => (
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full bg-cobalt-light" />
+                        <p className="text-xs font-semibold text-cobalt-light">Available on MyPal</p>
+                      </div>
+                      <div className="flex gap-2.5 overflow-x-auto scrollbar-hide -mx-1 px-1">
+                        {message.mypalProducts.map((product) => (
                           <div
                             key={product.id}
-                            className="flex-shrink-0 w-36 bg-secondary rounded-xl overflow-hidden"
+                            className="flex-shrink-0 w-36 border border-cobalt-light/25 bg-cobalt-light/5 rounded-xl p-2.5"
                           >
-                            <div className="relative aspect-square">
-                              <img
-                                src={product.image}
-                                alt={product.title}
-                                className="w-full h-full object-cover"
-                              />
-                              <button
-                                onClick={() => toggleWishlist(product.id)}
-                                className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-background/80 flex items-center justify-center"
-                              >
-                                <Heart
-                                  className={cn(
-                                    "w-3 h-3",
-                                    wishlist.includes(product.id)
-                                      ? "fill-destructive text-destructive"
-                                      : "text-foreground"
-                                  )}
-                                />
-                              </button>
+                            <div className="w-9 h-9 rounded-lg bg-cobalt-light/10 flex items-center justify-center mb-2">
+                              <ShoppingBag className="w-4 h-4 text-cobalt-light" />
                             </div>
-                            <div className="p-2">
-                              <p className="text-xs text-foreground line-clamp-2 leading-tight mb-1">
-                                {product.title}
+                            <p className="text-xs text-foreground font-medium line-clamp-2 leading-tight mb-1.5">
+                              {product.title}
+                            </p>
+                            {product.category && (
+                              <p className="text-[10px] text-muted-foreground mb-1.5">
+                                {product.category}
                               </p>
-                              <p className="text-sm font-bold text-foreground">
-                                ${product.price}
-                              </p>
+                            )}
+                            <div className="flex items-center gap-1">
+                              <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                              <span className="text-[10px] text-green-600 font-medium">In Store</span>
                             </div>
                           </div>
                         ))}
@@ -233,16 +239,52 @@ const AISearchScreen = () => {
                     </div>
                   )}
 
-                  {/* Suggestions */}
+                  {/* ── External AI-found products (Pro deep search) ── */}
+                  {message.products && message.products.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5">
+                        <Globe className="w-3 h-3 text-muted-foreground" />
+                        <p className="text-xs font-medium text-muted-foreground">Web Findings</p>
+                      </div>
+                      <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-1 px-1">
+                        {message.products.slice(0, 6).map((product, i) => (
+                          <div key={i} className="flex-shrink-0 w-36 bg-secondary rounded-xl overflow-hidden">
+                            <div className="p-2.5">
+                              <p className="text-xs text-foreground line-clamp-2 leading-tight mb-1">
+                                {product.name ?? product.title}
+                              </p>
+                              <p className="text-sm font-bold text-foreground">
+                                {product.total_cost != null || product.price != null
+                                  ? `${product.currency ?? '$'}${product.total_cost ?? product.price}`
+                                  : '—'}
+                              </p>
+                              {product.source_url && (
+                                <a
+                                  href={product.source_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-1 mt-1.5 text-[10px] text-cobalt-light hover:underline"
+                                >
+                                  <ExternalLink className="w-2.5 h-2.5" /> View
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Follow-up suggestions ─────────────────────── */}
                   {message.suggestions && message.suggestions.length > 0 && (
-                    <div className="flex flex-wrap gap-2 pt-2">
-                      {message.suggestions.map((suggestion) => (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {message.suggestions.map((s) => (
                         <button
-                          key={suggestion}
-                          onClick={() => handleSuggestionClick(suggestion)}
+                          key={s}
+                          onClick={() => setInput(s)}
                           className="text-xs px-3 py-1.5 bg-cobalt-light/10 text-cobalt-light rounded-full hover:bg-cobalt-light/20 transition-colors"
                         >
-                          {suggestion}
+                          {s}
                         </button>
                       ))}
                     </div>
@@ -253,14 +295,18 @@ const AISearchScreen = () => {
           ))
         )}
 
-        {/* Typing Indicator */}
+        {/* Typing indicator */}
         {isTyping && (
           <div className="flex justify-start">
             <div className="glass-card px-4 py-3 rounded-2xl rounded-bl-sm">
               <div className="flex gap-1">
-                <div className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
+                {[0, 150, 300].map((delay) => (
+                  <div
+                    key={delay}
+                    className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce"
+                    style={{ animationDelay: `${delay}ms` }}
+                  />
+                ))}
               </div>
             </div>
           </div>
@@ -269,11 +315,46 @@ const AISearchScreen = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      <div className="px-4 py-3 border-t border-border bg-background">
+      {/* ── Input area ────────────────────────────────────────────────────── */}
+      <div className="px-4 py-3 border-t border-border bg-background space-y-2">
+        {/* Model selector */}
+        <div className="flex items-center gap-1.5">
+          {(['fast', 'pro'] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setModel(m)}
+              disabled={m === 'pro' && proQuotaFull}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all border',
+                model === m
+                  ? 'bg-cobalt-light text-white border-cobalt-light shadow-sm'
+                  : 'bg-transparent text-muted-foreground border-border hover:text-foreground hover:border-foreground/30',
+                m === 'pro' && proQuotaFull && 'opacity-40 cursor-not-allowed',
+              )}
+            >
+              {m === 'fast' ? <Zap className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
+              {m === 'fast' ? 'Fast' : 'Pro'}
+            </button>
+          ))}
+
+          {model === 'pro' && (
+            <span
+              className={cn(
+                'ml-auto text-xs',
+                proQuotaFull ? 'text-destructive' : 'text-muted-foreground',
+              )}
+            >
+              {proQuotaFull
+                ? 'Quota full — resets tomorrow'
+                : `${proRemaining} Pro ${proRemaining === 1 ? 'use' : 'uses'} left today`}
+            </span>
+          )}
+        </div>
+
+        {/* Chat input */}
         <div className="glass-card p-1 flex items-center gap-2">
           <Input
-            placeholder="Ask about products..."
+            placeholder={model === 'fast' ? 'Quick search...' : 'Deep search with AI Pro...'}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
@@ -281,7 +362,7 @@ const AISearchScreen = () => {
           />
           <button
             onClick={handleSend}
-            disabled={!input.trim() || isTyping}
+            disabled={!input.trim() || isTyping || (model === 'pro' && proQuotaFull)}
             className="bg-gradient-cobalt p-2.5 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
           >
             <Send className="w-4 h-4 text-primary-foreground" />

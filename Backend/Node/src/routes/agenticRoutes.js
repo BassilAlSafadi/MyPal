@@ -113,7 +113,7 @@ router.post('/ai/deep-search', async (req, res) => {
 router.post('/ai/fast-search', async (req, res) => {
   const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
   try {
-    const result = await fastSearchFeature(req.body.query || '');
+    const result = await fastSearchFeature(req.body.query || '', req.body.internal_products || []);
     return res.json({ result, trace_id: traceId });
   } catch (err) {
     return res.status(500).json({ error: String(err), trace_id: traceId });

@@ -33,6 +33,7 @@ function createInitialState(input = {}) {
     is_secure: true,
     failure_history: [],
     search_conflict_notes: '',
+    internal_products: input.internal_products || [],
     payload: input.payload || {},
   };
 }
@@ -246,7 +247,11 @@ async function geminiFinalNode(state, provider) {
         : 'NONE';
     return `ITEM ${i + 1}:\nName: ${p.name}\nPrice: ${p.price} ${p.currency}\nSpecs: ${JSON.stringify(p.key_specs || [])}\nURL: ${url}`;
   }).join('\n\n');
-  const prompt = `Format this product report professionally. Rules for links: Only use [View Details](URL) if URL is not NONE.\n\nContext:\n${verifiedContext}`;
+  const mypalSection = (state.internal_products || []).length > 0
+    ? `\n\nPRODUCTS AVAILABLE ON MYPAL (mention these first — they are directly purchasable in-app):\n${JSON.stringify((state.internal_products || []).slice(0, 5))}`
+    : '';
+
+  const prompt = `Format this product report professionally. Rules for links: Only use [View Details](URL) if URL is not NONE. If MyPal products are listed, highlight them first as the recommended in-app option.\n\nContext:\n${verifiedContext}${mypalSection}`;
   const content = await provider.chat('gemini', [...state.messages, { role: 'user', content: prompt }]);
   return { final_output: content, messages: [...state.messages, { role: 'assistant', content }] };
 }
