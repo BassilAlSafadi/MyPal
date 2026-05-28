@@ -79,6 +79,28 @@ func (a *AgenticOrchestrator) Recommend(ctx context.Context, persona string, cat
 	return a.post(ctx, "/ai/recommend", map[string]any{"persona": persona, "catalog": catalog})
 }
 
+// ProductAsk invokes the persona-aware product Q&A agent.
+func (a *AgenticOrchestrator) ProductAsk(ctx context.Context, question string, productData map[string]any, persona string) (*AgenticResponse, error) {
+	return a.post(ctx, "/ai/product/ask", map[string]any{
+		"question":     question,
+		"product_data": productData,
+		"persona":      persona,
+	})
+}
+
+// Clean invokes the scraped-data extraction agent (ScrapedDataCleaner).
+func (a *AgenticOrchestrator) Clean(ctx context.Context, rawText string) (*AgenticResponse, error) {
+	return a.post(ctx, "/ai/scraped/clean", map[string]string{"raw_text": rawText})
+}
+
+// SellerAnalyze invokes the full map-reduce seller analytics pipeline.
+func (a *AgenticOrchestrator) SellerAnalyze(ctx context.Context, products []map[string]any, sellerID string) (*AgenticResponse, error) {
+	return a.post(ctx, "/ai/seller/analyze", map[string]any{
+		"products":  products,
+		"seller_id": sellerID,
+	})
+}
+
 func (a *AgenticOrchestrator) post(ctx context.Context, path string, payload any) (*AgenticResponse, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {

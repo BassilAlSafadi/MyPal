@@ -205,6 +205,9 @@ func buildRoutes(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Poo
 	mux.Handle("POST /api/v1/ai/agentic/translate", authenticated(agentic.TranslateHandler(agenticSvc)))
 	mux.Handle("POST /api/v1/ai/agentic/summarize", authenticated(agentic.SummarizeHandler(agenticSvc)))
 	mux.Handle("POST /api/v1/ai/agentic/recommend", authenticated(agentic.RecommendHandler(agenticSvc)))
+	mux.Handle("POST /api/v1/ai/agentic/product-ask", authenticated(agentic.ProductAskHandler(agenticSvc)))
+	mux.Handle("POST /api/v1/ai/agentic/clean", authenticated(agentic.CleanHandler(agenticSvc)))
+	mux.Handle("POST /api/v1/ai/agentic/seller-analyze", authenticated(agentic.SellerAnalyzeHandler(agenticSvc)))
 
 	// ----------------------------------------------------------------
 	// AI & LLM Orchestration → Node Orchestrator  (authenticated)

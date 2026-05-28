@@ -2,7 +2,7 @@ const { createLLMProvider } = require('../providers/llmProvider');
 
 async function askProductExpert({ question, product_data, persona }, provider = createLLMProvider()) {
   const metadataBlock = Object.entries(product_data || {})
-    .map(([k, v]) => `- ${k.toUpperCase()}: ${JSON.stringify(v)}`)
+    .map(([k, v]) => `- ${k.toUpperCase()}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
     .join('\n');
 
   const system = `ROLE:
@@ -10,7 +10,9 @@ You are the "MyPal Product Expert," a highly intelligent shopping assistant.
 Your goal is to answer user questions about a SPECIFIC product using provided metadata.
 
 USER PERSONA CONTEXT:
-${persona || 'General shopper'}
+The user is currently identified with the following interests/persona: ${persona || 'General shopper'}
+Tailor your tone, vocabulary, and priorities to match this persona.
+(e.g., if Fitness, focus on health benefits/durability; if Tech, focus on specs/integration).
 
 PRODUCT DATA (TRUTH SOURCE):
 ${metadataBlock}

@@ -40,6 +40,7 @@ router.get('/', (_req, res) =>
       'POST /ai/product/ask',
       'POST /ai/scraped/clean',
       'POST /ai/recommend',
+      'POST /ai/seller/analyze',
       'POST /agent/orchestrate',
       'POST /summaries/map',
       'POST /summaries/reduce',
@@ -168,6 +169,23 @@ router.post('/ai/recommend', async (req, res) => {
   try {
     const recommender = new MyPalProdRecommender();
     const result = await recommender.recommend(req.body.persona || '', req.body.catalog || []);
+    return res.json({ result, trace_id: traceId });
+  } catch (err) {
+    return res.status(500).json({ error: String(err), trace_id: traceId });
+  }
+});
+
+// ── Seller analytics — full pipeline (map → reduce) ──────────────────────────
+// Called by Go /api/v1/ai/agentic/seller-analyze for the notebook-equivalent full pipeline.
+
+router.post('/ai/seller/analyze', async (req, res) => {
+  const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
+  try {
+    if (!Array.isArray(req.body.products)) {
+      return res.status(400).json({ error: 'products array required', trace_id: traceId });
+    }
+    const analytics = new MyPalSellerAnalytics();
+    const result = await analytics.analyze(req.body.products);
     return res.json({ result, trace_id: traceId });
   } catch (err) {
     return res.status(500).json({ error: String(err), trace_id: traceId });

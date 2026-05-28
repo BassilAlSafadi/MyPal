@@ -168,12 +168,17 @@ function createLLMProvider(env = process.env, httpClient = createDefaultHttpClie
 
   async function chatWithFallback(primary, messages, options = {}) {
     const attempts = options.attempts || 3;
+    // Exponential backoff mirrors the notebook: wait_exponential(multiplier=1, min=2, max=10)
+    const backoffMs = (i) => Math.min(10000, Math.max(2000, 1000 * Math.pow(2, i)));
     let lastErr = null;
     for (let i = 0; i < attempts; i += 1) {
       try {
         return await chat(primary, messages, options);
       } catch (err) {
         lastErr = err;
+        if (i < attempts - 1) {
+          await new Promise((r) => setTimeout(r, backoffMs(i)));
+        }
       }
     }
     try {
