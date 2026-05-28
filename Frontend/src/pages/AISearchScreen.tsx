@@ -1,9 +1,30 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Sparkles, RotateCcw, Zap, ShoppingBag, ExternalLink, Globe } from 'lucide-react';
+import { Send, Sparkles, RotateCcw, Zap, ShoppingBag, ExternalLink, Globe, Check } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import BottomNav from '@/components/BottomNav';
 import { cn } from '@/lib/utils';
 import { searchService, SearchModel, ExternalProduct } from '@/services/searchService';
+
+// ── Thinking thoughts (never expose infrastructure or model names) ────────────
+
+const FAST_THOUGHTS = [
+  'Understanding what you\'re looking for...',
+  'Checking what\'s available in store...',
+  'Reviewing prices and options...',
+  'Finding the best match for you...',
+  'Almost ready...',
+];
+
+const PRO_THOUGHTS = [
+  'Thinking carefully about your request...',
+  'Exploring your preferences and budget...',
+  'Searching across multiple sources...',
+  'Comparing prices and specifications...',
+  'Checking availability and reliability...',
+  'Verifying the most relevant options...',
+  'Reviewing everything one more time...',
+  'Putting together your personalised report...',
+];
 
 // ── Pro quota ─────────────────────────────────────────────────────────────────
 
@@ -57,6 +78,9 @@ const AISearchScreen = () => {
   const [model, setModel] = useState<SearchModel>('fast');
   const [proUsageCount, setProUsageCount] = useState(() => getProUsage().count);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [visibleThoughts, setVisibleThoughts] = useState<string[]>([]);
+  const thoughtIdxRef = useRef(0);
+  const thoughtTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const proRemaining = Math.max(0, PRO_QUOTA - proUsageCount);
   const proQuotaFull = proUsageCount >= PRO_QUOTA;
@@ -64,6 +88,34 @@ const AISearchScreen = () => {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Drive the thinking stream while the AI is working
+  useEffect(() => {
+    if (thoughtTimerRef.current) clearInterval(thoughtTimerRef.current);
+
+    if (!isTyping) {
+      setVisibleThoughts([]);
+      thoughtIdxRef.current = 0;
+      return;
+    }
+
+    const thoughts = model === 'pro' ? PRO_THOUGHTS : FAST_THOUGHTS;
+    thoughtIdxRef.current = 0;
+    setVisibleThoughts([thoughts[0]]);
+    thoughtIdxRef.current = 1;
+
+    thoughtTimerRef.current = setInterval(() => {
+      if (thoughtIdxRef.current < thoughts.length) {
+        const next = thoughts[thoughtIdxRef.current];
+        thoughtIdxRef.current += 1;
+        setVisibleThoughts((prev) => [...prev, next].slice(-4));
+      }
+    }, model === 'pro' ? 2200 : 1500);
+
+    return () => {
+      if (thoughtTimerRef.current) clearInterval(thoughtTimerRef.current);
+    };
+  }, [isTyping, model]);
 
   const handleSend = async () => {
     const query = input.trim();
@@ -295,18 +347,36 @@ const AISearchScreen = () => {
           ))
         )}
 
-        {/* Typing indicator */}
+        {/* Thinking stream */}
         {isTyping && (
           <div className="flex justify-start">
-            <div className="glass-card px-4 py-3 rounded-2xl rounded-bl-sm">
-              <div className="flex gap-1">
-                {[0, 150, 300].map((delay) => (
-                  <div
-                    key={delay}
-                    className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce"
-                    style={{ animationDelay: `${delay}ms` }}
-                  />
-                ))}
+            <div className="glass-card px-4 py-3 rounded-2xl rounded-bl-sm max-w-[85%] space-y-2">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-cobalt-light animate-pulse" />
+                <span className="text-xs font-semibold text-cobalt-light">Thinking</span>
+              </div>
+              <div className="space-y-1.5">
+                {visibleThoughts.map((thought, i) => {
+                  const isActive = i === visibleThoughts.length - 1;
+                  return (
+                    <div
+                      key={i}
+                      className={cn(
+                        'flex items-start gap-2 text-xs transition-all duration-500',
+                        isActive ? 'text-foreground' : 'text-muted-foreground opacity-60',
+                      )}
+                    >
+                      {isActive ? (
+                        <div className="mt-[3px] w-3 h-3 flex-shrink-0 flex items-center justify-center">
+                          <div className="w-1.5 h-1.5 rounded-full bg-cobalt-light animate-pulse" />
+                        </div>
+                      ) : (
+                        <Check className="mt-[1px] w-3 h-3 flex-shrink-0 text-green-500" />
+                      )}
+                      <span>{thought}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
