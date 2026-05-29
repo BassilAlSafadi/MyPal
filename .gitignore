@@ -5,8 +5,20 @@ __v0_jsx-dev-runtime.ts
 
 # Common ignores
 node_modules
+node_modules.old*/
 .next/
 .DS_Store
+
+# Build artifacts
+**/obj/
+**/bin/
+
+# Go binaries
+Backend/Go/gateway-bin
+Backend/Go/gateway-bin~
+
+# IDE / run configs
+.run/
 
 # Secrets and Environment Variables
 .env
