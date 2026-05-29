@@ -38,6 +38,8 @@ type ReadinessCheck func(ctx context.Context) error
 func Register(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Pool, readiness ReadinessCheck) http.Handler {
 	middleware.ConfigureRateLimit(cfg.RateLimit.RequestsPerSecond, cfg.RateLimit.BurstSize)
 
+	RegisterSwagger(mux)
+
 	// Build the routes and apply the global identity header stripper.
 	// This ensures no client-side spoofing can reach any upstream or internal logic.
 	handler := buildRoutes(mux, cfg, db, readiness)
