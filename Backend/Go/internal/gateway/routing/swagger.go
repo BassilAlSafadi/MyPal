@@ -22,9 +22,9 @@ func swaggerSpec() map[string]any {
 			"version":     gatewayVersion,
 			"description": "Go reverse-proxy gateway. Auth routes forward to the C# Main API; AI/seller routes forward to the Node LLM Orchestrator.",
 		},
-		"servers": []map[string]any{
-			{"url": "http://localhost:8081", "description": "Local dev"},
-		},
+		// servers intentionally omitted — Swagger UI will use the host it was
+		// loaded from, which works correctly in both local dev and Codespaces.
+		"servers": []map[string]any{},
 		"components": map[string]any{
 			"securitySchemes": map[string]any{
 				"BearerAuth": bearer,

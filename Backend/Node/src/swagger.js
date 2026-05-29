@@ -11,7 +11,8 @@ const spec = {
       'Internal Node.js service that executes AI/LLM workflows. ' +
       'All routes are reached through the Go Gateway — direct calls require X-Internal-Token.',
   },
-  servers: [{ url: 'http://localhost:5003', description: 'Local dev' }],
+  // No hardcoded servers — Swagger UI uses the host it was loaded from.
+  // This makes it work in both local dev and GitHub Codespaces automatically.
   components: {
     securitySchemes: {
       InternalToken: {
