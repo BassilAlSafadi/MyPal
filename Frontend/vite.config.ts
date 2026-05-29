@@ -11,13 +11,17 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false,
     },
+    // Dev/Codespaces: the browser calls the frontend origin with relative
+    // paths (VITE_API_GATEWAY is empty), and Vite proxies them server-side to
+    // the Go Gateway. This keeps requests same-origin — no CORS, no port
+    // visibility issues, and no localhost-resolves-to-the-laptop problem.
     proxy: {
       '/api': {
-        target: 'http://localhost:8081',
+        target: 'http://localhost:8080',
         changeOrigin: true,
       },
       '/health': {
-        target: 'http://localhost:8081',
+        target: 'http://localhost:8080',
         changeOrigin: true,
       },
     },
