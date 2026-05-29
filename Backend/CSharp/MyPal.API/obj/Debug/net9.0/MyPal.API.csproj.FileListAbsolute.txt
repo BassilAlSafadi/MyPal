@@ -414,3 +414,8 @@ G:\MyPal\MyPal\Backend\CSharp\MyPal.API\obj\Debug\net9.0\staticwebassets.build.e
 G:\MyPal\MyPal\Backend\CSharp\MyPal.API\obj\Debug\net9.0\MyPal.API.csproj.Up2Date
 G:\MyPal\MyPal\Backend\CSharp\MyPal.API\obj\Debug\net9.0\MyPal.API.genruntimeconfig.cache
 G:\MyPal\MyPal\Backend\CSharp\MyPal.API\obj\Debug\net9.0\ref\MyPal.API.dll
+G:\MyPal\MyPal\Backend\CSharp\MyPal.API\bin\Debug\net9.0\Microsoft.OpenApi.dll
+G:\MyPal\MyPal\Backend\CSharp\MyPal.API\bin\Debug\net9.0\Swashbuckle.AspNetCore.Swagger.dll
+G:\MyPal\MyPal\Backend\CSharp\MyPal.API\bin\Debug\net9.0\Swashbuckle.AspNetCore.SwaggerGen.dll
+G:\MyPal\MyPal\Backend\CSharp\MyPal.API\bin\Debug\net9.0\Swashbuckle.AspNetCore.SwaggerUI.dll
+G:\MyPal\MyPal\Backend\CSharp\MyPal.API\obj\Debug\net9.0\MyPal.API.MvcApplicationPartsAssemblyInfo.cs

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MyPal.Domain")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ee7bd6d85ba0f3159fea8fd580f8ca282205b7b3")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b8e954a35cfd80df026bf5ea2bd3f5e85b82a9e6")]
 [assembly: System.Reflection.AssemblyProductAttribute("MyPal.Domain")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MyPal.Domain")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
