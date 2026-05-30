@@ -17,11 +17,11 @@ export default defineConfig(({ mode }) => ({
     // visibility issues, and no localhost-resolves-to-the-laptop problem.
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:8081',
         changeOrigin: true,
       },
       '/health': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:8081',
         changeOrigin: true,
       },
     },
