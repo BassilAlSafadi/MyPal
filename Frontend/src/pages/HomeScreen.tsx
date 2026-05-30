@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { useMockStore } from '@/lib/useMockStore';
 import { mockProducts } from '@/mock/products';
 import { 
-  Search, Sparkles, TrendingUp, ChevronRight,
+  Search, Sparkles, TrendingUp, ChevronRight, ArrowRight,
   Smartphone, Shirt, Home, Dumbbell, BookOpen, Car, Palette, Briefcase,
   Clock, Package, Globe, Database, Terminal, Loader2
 } from 'lucide-react';
