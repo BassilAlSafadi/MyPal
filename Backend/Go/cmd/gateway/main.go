@@ -59,34 +59,47 @@ func main() {
 	}
 	slog.Info("gateway: postgres connected")
 
-	eventBus, err := messaging.NewEventBus(cfg.Messaging.NATSURL)
-	if err != nil {
-		slog.Error("gateway: failed to connect NATS", "url", cfg.Messaging.NATSURL, "err", err)
-		db.Close()
-		os.Exit(1)
-	}
-	if err := eventBus.SetupStreams(); err != nil {
-		slog.Error("gateway: failed to setup NATS streams", "err", err)
-		eventBus.Close()
-		db.Close()
-		os.Exit(1)
-	}
-
-	outboxWorker := messaging.NewOutboxWorker(db, eventBus, cfg.Messaging.OutboxInterval)
-	reconciliationWorker := messaging.NewReconciliationWorker(db, cfg.Messaging.ReconciliationInterval)
-	workerRuntime := messaging.NewWorkerRuntime(outboxWorker, reconciliationWorker)
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
-	if err := workerRuntime.Start(workerCtx); err != nil {
-		slog.Error("gateway: failed to start worker runtime", "err", err)
-		eventBus.Close()
-		db.Close()
-		os.Exit(1)
+
+	// Messaging (NATS + outbox/reconciliation workers) is optional. When disabled
+	// the gateway still serves all proxy routes; only eventual-consistency workers
+	// for the saga/outbox flow are off. This lets it run without a NATS service.
+	var workerRuntime *messaging.WorkerRuntime
+	closeMessaging := func() {}
+	if cfg.Messaging.Enabled {
+		eventBus, err := messaging.NewEventBus(cfg.Messaging.NATSURL)
+		if err != nil {
+			slog.Error("gateway: failed to connect NATS", "url", cfg.Messaging.NATSURL, "err", err)
+			db.Close()
+			os.Exit(1)
+		}
+		if err := eventBus.SetupStreams(); err != nil {
+			slog.Error("gateway: failed to setup NATS streams", "err", err)
+			eventBus.Close()
+			db.Close()
+			os.Exit(1)
+		}
+
+		outboxWorker := messaging.NewOutboxWorker(db, eventBus, cfg.Messaging.OutboxInterval)
+		reconciliationWorker := messaging.NewReconciliationWorker(db, cfg.Messaging.ReconciliationInterval)
+		workerRuntime = messaging.NewWorkerRuntime(outboxWorker, reconciliationWorker)
+		if err := workerRuntime.Start(workerCtx); err != nil {
+			slog.Error("gateway: failed to start worker runtime", "err", err)
+			eventBus.Close()
+			db.Close()
+			os.Exit(1)
+		}
+		closeMessaging = func() { eventBus.Close() }
+	} else {
+		slog.Info("gateway: messaging disabled (MESSAGING_ENABLED=false) — NATS and outbox/reconciliation workers are off")
 	}
 
 	readiness := func(ctx context.Context) error {
-		if err := workerRuntime.ReadinessCheck(ctx); err != nil {
-			return err
+		if workerRuntime != nil {
+			if err := workerRuntime.ReadinessCheck(ctx); err != nil {
+				return err
+			}
 		}
 		if err := db.Ping(ctx); err != nil {
 			return fmt.Errorf("postgres not ready: %w", err)
@@ -121,13 +134,15 @@ func main() {
 	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := workerRuntime.Shutdown(shutCtx); err != nil {
-		slog.Error("gateway: worker runtime shutdown error", "err", err)
+	if workerRuntime != nil {
+		if err := workerRuntime.Shutdown(shutCtx); err != nil {
+			slog.Error("gateway: worker runtime shutdown error", "err", err)
+		}
 	}
 	if err := srv.Shutdown(shutCtx); err != nil {
 		slog.Error("gateway: shutdown error", "err", err)
 	}
-	eventBus.Close()
+	closeMessaging()
 	db.Close()
 	slog.Info("gateway: stopped cleanly")
 }

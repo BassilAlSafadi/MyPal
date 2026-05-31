@@ -1,0 +1,16 @@
+# Dockerfile for the MyPal API Gateway (cmd/gateway).
+# Built from the Backend/Go module; the older src/MyPal.Api.Go copy is unused.
+FROM golang:1.24-alpine AS builder
+ENV GOTOOLCHAIN=auto
+WORKDIR /app
+COPY . .
+RUN go mod download
+RUN go build -o gateway ./cmd/gateway
+
+FROM alpine:latest
+# ca-certificates is required for TLS to Supabase (Postgres pooler) and any HTTPS upstream.
+RUN apk add --no-cache ca-certificates
+WORKDIR /root/
+COPY --from=builder /app/gateway .
+EXPOSE 10000
+CMD ["./gateway"]
