@@ -264,7 +264,10 @@ app.MapGet("/api/auth/google/complete", async (HttpContext context, MyPalDbConte
     SetRefreshCookie(context, refreshToken);
 
     var frontendUrl = builder.Configuration["FRONTEND_URL"] ?? "http://localhost:5173";
-    return Results.Redirect($"{frontendUrl}/auth/callback?access_token={accessToken}");
+    // Include the refresh token in the URL so the SPA can persist it in localStorage
+    // immediately — needed on iOS Safari and other browsers that block cross-site cookies.
+    // The SPA navigates away with replace:true so the token doesn't stay in browser history.
+    return Results.Redirect($"{frontendUrl}/auth/callback?access_token={Uri.EscapeDataString(accessToken)}&refresh_token={Uri.EscapeDataString(refreshToken)}");
 });
 
 app.MapPost("/api/auth/refresh", async (RefreshRequest request, HttpContext context, MyPalDbContext db, IJwtService jwtService) =>

@@ -6,12 +6,14 @@ import { Loader2, AlertCircle } from 'lucide-react';
 
 /**
  * Handles the redirect from Google OAuth.
- * C# sends: GET /auth/callback?access_token=<jwt>
+ * C# sends: GET /auth/callback?access_token=<jwt>&refresh_token=<jwt>
+ *
+ * The refresh token is in the URL so it can be persisted in localStorage
+ * immediately — iOS Safari and other mobile browsers block cross-site
+ * cookies, making the httpOnly cookie approach unreliable.
  *
  * Fetches the full profile via /api/v1/users/me (with one retry after 4 s
- * for cold-starting HF spaces). Never falls back to a partial JWT-decoded
- * "demo user" — if both attempts fail, the user is sent back to login with
- * a clear error message.
+ * for cold-starting HF spaces). If both attempts fail, sends back to login.
  */
 const AuthCallback = () => {
   const [searchParams] = useSearchParams();
@@ -38,7 +40,8 @@ const AuthCallback = () => {
   };
 
   useEffect(() => {
-    const accessToken = searchParams.get('access_token');
+    const accessToken  = searchParams.get('access_token');
+    const refreshToken = searchParams.get('refresh_token');
 
     if (!accessToken) {
       navigate('/login', { replace: true });
@@ -46,19 +49,13 @@ const AuthCallback = () => {
     }
 
     tokenStore.set(accessToken);
+    // Persist in localStorage immediately so reloads survive on all browsers,
+    // including iOS Safari which blocks cross-site httpOnly cookies.
+    if (refreshToken) refreshTokenStore.set(refreshToken);
 
-    // Google's refresh cookie landed on hf.space and can't be read by the gateway-routed
-    // /refresh. bootstrap-session mints one on the gateway domain. Then we immediately
-    // call /refresh (while the fresh access token is still valid) to get a body-based
-    // refresh token we can persist in localStorage — this survives iOS Safari's cross-site
-    // cookie blocking on subsequent reloads.
-    apiClient.post('/api/v1/auth/bootstrap-session', {})
-      .then(() => apiClient.post<any>('/api/v1/auth/refresh', {}))
-      .then((data) => {
-        const rt = data?.refresh_token ?? data?.data?.refresh_token;
-        if (rt) refreshTokenStore.set(rt);
-      })
-      .catch(() => {});
+    // Also plant a gateway-domain httpOnly cookie as a belt-and-suspenders
+    // fallback for browsers that do support cross-site cookies.
+    apiClient.post('/api/v1/auth/bootstrap-session', {}).catch(() => {});
 
     apiClient.get<any>('/api/v1/users/me')
       .then(applyProfile)
@@ -70,9 +67,8 @@ const AuthCallback = () => {
           apiClient.get<any>('/api/v1/users/me')
             .then(applyProfile)
             .catch(() => {
-              // Both attempts failed. Clear the token so we don't persist
-              // stale ghost data, then send back to login with a message.
               tokenStore.clear();
+              refreshTokenStore.clear();
               navigate('/login?error=session_failed', { replace: true });
             });
         }, 4000);
