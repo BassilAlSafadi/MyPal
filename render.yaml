@@ -92,6 +92,10 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: HUGGING_FACE_API_KEY
+        sync: false
 
   # ── Go Support ───────────────────────────────────────────────────────────
   - type: web
