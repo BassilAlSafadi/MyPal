@@ -1,0 +1,10 @@
+# Local build artifacts and logs — keep the Docker build context small & correct.
+*.exe
+*-bin
+*-bin~
+gateway-bin*
+main.exe
+embed.exe
+*.log
+*.stdout.log
+*.stderr.log

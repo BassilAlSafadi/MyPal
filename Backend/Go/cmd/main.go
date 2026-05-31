@@ -35,8 +35,12 @@ func seedMongo(db *mongo.Database) {
 func main() {
 	fmt.Println("MyPal Support Go Service Starting...")
 
-	// Start a minimal HTTP server for health checks and SSQL validation
-	port := os.Getenv("GO_SERVER_PORT")
+	// Start a minimal HTTP server for health checks and SSQL validation.
+	// Honour Render/Heroku-style $PORT first, then the explicit server var.
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = os.Getenv("GO_SERVER_PORT")
+	}
 	if port == "" {
 		port = "5001"
 	}

@@ -51,6 +51,7 @@ type RateLimitConfig struct {
 
 // MessagingConfig holds NATS and worker lifecycle configuration.
 type MessagingConfig struct {
+	Enabled                bool
 	NATSURL                string
 	OutboxInterval         time.Duration
 	ReconciliationInterval time.Duration
@@ -64,7 +65,8 @@ type CORSConfig struct {
 // Load reads configuration from environment variables with typed defaults.
 func Load() (*GatewayConfig, error) {
 	cfg := &GatewayConfig{
-		Port:         getEnv("GO_GATEWAY_PORT", "8080"),
+		// Honour Render/Heroku-style $PORT first, then the explicit gateway var.
+		Port:         getEnv("GO_GATEWAY_PORT", getEnv("PORT", "8080")),
 		MaxBodyBytes: int64(getEnvInt("GATEWAY_MAX_BODY_BYTES", 4*1024*1024)), // 4MB
 		Timeout: GatewayTimeouts{
 			CSharpAPI:        getEnvDuration("TIMEOUT_CSHARP_MS", 5000),
@@ -88,6 +90,9 @@ func Load() (*GatewayConfig, error) {
 			BurstSize:         getEnvInt("RATE_LIMIT_BURST", 200),
 		},
 		Messaging: MessagingConfig{
+			// Disable to run without NATS (no outbox/reconciliation workers) —
+			// used for the lean cloud deployment where messaging isn't provisioned.
+			Enabled:                getEnvBool("MESSAGING_ENABLED", true),
 			NATSURL:                getEnv("NATS_URL", "nats://127.0.0.1:4222"),
 			OutboxInterval:         getEnvDuration("OUTBOX_WORKER_INTERVAL_MS", 1000),
 			ReconciliationInterval: getEnvDuration("RECONCILIATION_WORKER_INTERVAL_MS", 30000),
@@ -110,6 +115,15 @@ func Load() (*GatewayConfig, error) {
 func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
 	}
 	return fallback
 }

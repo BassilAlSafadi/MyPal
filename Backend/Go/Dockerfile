@@ -8,6 +8,8 @@ RUN go mod download
 RUN go build -o support ./cmd/main.go
 
 FROM alpine:latest
+# ca-certificates is required for TLS to Supabase (Postgres pooler).
+RUN apk add --no-cache ca-certificates
 WORKDIR /root/
 COPY --from=builder /app/support .
 CMD ["./support"]

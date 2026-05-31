@@ -17,7 +17,7 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json({ limit: '1mb' }));
 
-const PORT = process.env.NODE_ORCHESTRATOR_PORT || 5003;
+const PORT = process.env.PORT || process.env.NODE_ORCHESTRATOR_PORT || 5003;
 const MONGO_URL = process.env.MONGO_URL || process.env.MONGO_URI || 'mongodb://localhost:27017/mypal_audit';
 
 mongoose
@@ -28,4 +28,4 @@ mongoose
 app.use('/swagger', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use('/', agenticRoutes);
 
-app.listen(PORT, () => console.log(`LLM orchestrator listening on ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`LLM orchestrator listening on ${PORT}`));
