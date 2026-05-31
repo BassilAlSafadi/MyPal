@@ -14,6 +14,7 @@ import AISearchScreen from "./pages/AISearchScreen";
 import WishlistScreen from "./pages/WishlistScreen";
 import WalletScreen from "./pages/WalletScreen";
 import SellScreen from "./pages/SellScreen";
+import CartScreen from "./pages/CartScreen";
 import SettingsScreen from "./pages/SettingsScreen";
 import AuthCallback from "./pages/AuthCallback";
 import CompleteProfileScreen from "./pages/CompleteProfileScreen";
@@ -47,6 +48,7 @@ const App = () => (
         <Route path="/sell" element={<ProtectedRoute><SellScreen /></ProtectedRoute>} />
         {/* /my-listings → /sell until per-user listing ownership is modelled in the DB */}
         <Route path="/my-listings" element={<Navigate to="/sell" replace />} />
+        <Route path="/cart" element={<ProtectedRoute><CartScreen /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsScreen /></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
       </Routes>

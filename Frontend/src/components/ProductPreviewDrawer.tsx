@@ -1,26 +1,27 @@
 import * as React from "react";
-import { 
-  Sheet, 
-  SheetContent, 
-  SheetHeader, 
-  SheetTitle, 
+import { useNavigate } from "react-router-dom";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
 import { SearchResult } from "@/stores/searchStore";
 import { Button } from "@/components/ui/button";
-import { 
-  ExternalLink, 
-  ShoppingCart, 
-  ShieldCheck, 
+import {
+  ExternalLink,
+  ShoppingCart,
+  ShieldCheck,
   Sparkles,
   Database,
-  Globe
+  Globe,
+  ArrowRight,
 } from "lucide-react";
 import SellerAttitudeReport from "./Support/SellerAttitudeReport";
 import { LinkThumb } from "@/components/LinkThumb";
 import { useMockStore } from "@/lib/useMockStore";
 import { cartService } from "@/services/cartService";
-import { orderService } from "@/services/orderService";
 import { toast } from "sonner";
 import ProductImage from "@/components/ProductImage";
 
@@ -44,9 +45,9 @@ interface ProductPreviewDrawerProps {
 }
 
 export const ProductPreviewDrawer = ({ product, isOpen, onClose }: ProductPreviewDrawerProps) => {
+  const navigate = useNavigate();
   const { addToCart } = useMockStore();
   const [isAddingToCart, setIsAddingToCart] = React.useState(false);
-  const [isOrdering, setIsOrdering] = React.useState(false);
 
   if (!product) return null;
 
@@ -67,18 +68,23 @@ export const ProductPreviewDrawer = ({ product, isOpen, onClose }: ProductPrevie
       ? 'This MyPal listing is available to review and add to your cart. The seller and purchase flow are protected by MyPal escrow.'
       : 'This external product was discovered by the web agent. Open the seller page to confirm availability, shipping, and final checkout terms.');
 
-  const handleInternalPurchase = async () => {
+  // Add to cart → then navigate to /cart for checkout
+  const handleAddToCart = async () => {
     setIsAddingToCart(true);
     try {
       if (hasCatalogId) {
         await cartService.addItem(product.id, 1);
       }
       addToCart(product.id, 1);
-      toast.success('Added to cart', {
-        description: `${product.title} is ready for checkout.`,
+      toast.success('Added to cart!', {
+        description: `${product.title} is in your cart.`,
+        action: {
+          label: 'View Cart',
+          onClick: () => { onClose(); navigate('/cart'); },
+        },
       });
     } catch (error) {
-      toast.error('Could not add item', {
+      toast.error('Could not add to cart', {
         description: error instanceof Error ? error.message : 'Please try again.',
       });
     } finally {
@@ -86,30 +92,22 @@ export const ProductPreviewDrawer = ({ product, isOpen, onClose }: ProductPrevie
     }
   };
 
+  // Buy Now → add to cart then go straight to cart/checkout
   const handleBuyNow = async () => {
-    if (!hasCatalogId) {
-      await handleInternalPurchase();
-      return;
-    }
-
-    setIsOrdering(true);
+    setIsAddingToCart(true);
     try {
-      const order = await orderService.create({
-        items: [{ productId: product.id, quantity: 1 }],
-        paymentMethod: 2,
-        codAmountDue: price > 0 ? price : undefined,
-      });
-      const orderId = order.id ?? order.order_id;
-      toast.success('Order created', {
-        description: orderId ? `Order ${orderId} is pending confirmation.` : `${product.title} is pending confirmation.`,
-      });
+      if (hasCatalogId) {
+        await cartService.addItem(product.id, 1);
+      }
+      addToCart(product.id, 1);
       onClose();
+      navigate('/cart');
     } catch (error) {
-      toast.error('Could not create order', {
+      toast.error('Could not add item', {
         description: error instanceof Error ? error.message : 'Please try again.',
       });
     } finally {
-      setIsOrdering(false);
+      setIsAddingToCart(false);
     }
   };
 
@@ -225,18 +223,18 @@ export const ProductPreviewDrawer = ({ product, isOpen, onClose }: ProductPrevie
                 <div className="space-y-3">
                   <Button
                     onClick={handleBuyNow}
-                    disabled={isOrdering || isAddingToCart}
+                    disabled={isAddingToCart}
                     className="w-full h-14 bg-gradient-cobalt hover:opacity-90 text-primary-foreground font-bold rounded-2xl gap-3 shadow-xl shadow-cobalt/20"
                   >
-                    <ShoppingCart className="w-5 h-5" /> {isOrdering ? 'Creating Order...' : 'Buy Now'}
+                    <ArrowRight className="w-5 h-5" /> {isAddingToCart ? 'Adding…' : 'Buy Now → Checkout'}
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={handleInternalPurchase}
-                    disabled={isOrdering || isAddingToCart}
+                    onClick={handleAddToCart}
+                    disabled={isAddingToCart}
                     className="w-full h-12 rounded-2xl gap-3 font-bold"
                   >
-                    <ShoppingCart className="w-4 h-4" /> {isAddingToCart ? 'Adding...' : 'Add to Cart'}
+                    <ShoppingCart className="w-4 h-4" /> {isAddingToCart ? 'Adding…' : 'Add to Cart'}
                   </Button>
                 </div>
               ) : (

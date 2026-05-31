@@ -7,7 +7,7 @@ import { useAsync } from '@/hooks/useAsync';
 import { 
   Search, Sparkles, TrendingUp, ChevronRight, ArrowRight,
   Smartphone, Shirt, Home, Dumbbell, BookOpen, Car, Palette, Briefcase,
-  Clock, Package, Globe, Database, Terminal, Loader2, Star, Tag
+  Clock, Package, Globe, Database, Terminal, Loader2, Star, Tag, Settings
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -159,6 +159,13 @@ const HomeScreen = () => {
                 ${balance.toFixed(2)}
               </span>
             </div>
+            <button
+              onClick={() => navigate('/settings')}
+              className="p-2 rounded-xl hover:bg-secondary transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
+              aria-label="Settings"
+            >
+              <Settings className="w-4 h-4 text-muted-foreground" />
+            </button>
           </div>
         </div>
 
