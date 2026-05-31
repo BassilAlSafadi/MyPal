@@ -47,6 +47,11 @@ const AuthCallback = () => {
 
     tokenStore.set(accessToken);
 
+    // Google's original refresh cookie was set on the C# domain (hf.space) and can't be
+    // read by the gateway-routed /refresh. Mint one on the gateway domain now so a reload
+    // doesn't force re-login. Fire-and-forget: profile fetch + navigation proceed regardless.
+    apiClient.post('/api/v1/auth/bootstrap-session', {}).catch(() => {});
+
     apiClient.get<any>('/api/v1/users/me')
       .then(applyProfile)
       .catch(() => {

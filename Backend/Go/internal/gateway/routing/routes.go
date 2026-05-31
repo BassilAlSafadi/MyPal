@@ -176,6 +176,11 @@ func buildRoutes(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Poo
 	mux.Handle("/api/v1/auth/", base(csharpProxy.HandlerWithRewrite("/api/v1", "/api")))
 	mux.Handle("/api/auth/", base(csharpProxy.Handler("")))
 
+	// Establishing a refresh cookie requires a validated access token (X-User-Id),
+	// so this one auth path runs the authenticated stack. The more specific pattern
+	// takes precedence over the public "/api/v1/auth/" subtree above.
+	mux.Handle("POST /api/v1/auth/bootstrap-session", authenticated(csharpProxy.HandlerWithRewrite("/api/v1", "/api")))
+
 	// ----------------------------------------------------------------
 	// User & profile routes → C# Main API  (authenticated)
 	// ----------------------------------------------------------------

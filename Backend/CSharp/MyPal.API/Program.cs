@@ -290,9 +290,26 @@ app.MapPost("/api/auth/refresh", async (RefreshRequest request, HttpContext cont
     return Results.Ok(AuthPayload(user, accessToken, rotatedRefreshToken));
 });
 
+// Issues a refresh cookie for an already-authenticated session. The gateway validates
+// the access token and injects X-User-Id before this runs. Used after Google OAuth,
+// whose original refresh cookie was set on the C# domain (hf.space) and is therefore
+// unreachable by the gateway-routed /refresh. Because this response flows back through
+// the gateway, the Set-Cookie lands on the gateway domain where /refresh can read it.
+app.MapPost("/api/auth/bootstrap-session", async (HttpRequest req, HttpContext context, MyPalDbContext db, IJwtService jwtService) =>
+{
+    var user = await ResolveUserAsync(req, db);
+    if (user == null) return Results.Unauthorized();
+
+    var refreshToken = jwtService.GenerateRefreshToken(user);
+    SetRefreshCookie(context, refreshToken);
+    return Results.Ok(new { ok = true });
+});
+
 app.MapPost("/api/auth/logout", (HttpContext context) =>
 {
-    context.Response.Cookies.Delete("mypal_refresh", new CookieOptions { Path = "/" });
+    // Delete must mirror the SameSite/Secure attributes the cookie was set with,
+    // or the browser won't match and clear it.
+    context.Response.Cookies.Delete("mypal_refresh", RefreshCookieOptions(context, DateTimeOffset.UtcNow.AddDays(-1)));
     return Results.Ok();
 });
 
@@ -986,14 +1003,24 @@ static UserIdentityResponse ToUserIdentity(User user)
 
 static void SetRefreshCookie(HttpContext context, string refreshToken)
 {
-    context.Response.Cookies.Append("mypal_refresh", refreshToken, new CookieOptions
+    context.Response.Cookies.Append("mypal_refresh", refreshToken, RefreshCookieOptions(context, DateTimeOffset.UtcNow.AddDays(30)));
+}
+
+// The SPA (Vercel) talks to the gateway (Render) cross-site, so the refresh cookie
+// must be SameSite=None to be sent on cross-origin fetch — otherwise the browser
+// drops it on reload and the user is forced to log in again. SameSite=None requires
+// Secure, which local HTTP dev can't provide, so fall back to Lax there.
+static CookieOptions RefreshCookieOptions(HttpContext context, DateTimeOffset expires)
+{
+    var crossSite = context.Request.IsHttps;
+    return new CookieOptions
     {
         HttpOnly = true,
-        Secure   = context.Request.IsHttps,
-        SameSite = SameSiteMode.Lax,
-        Expires  = DateTimeOffset.UtcNow.AddDays(30),
+        Secure   = crossSite,
+        SameSite = crossSite ? SameSiteMode.None : SameSiteMode.Lax,
+        Expires  = expires,
         Path     = "/",
-    });
+    };
 }
 
 // ─── Request / Response records ─────────────────────────────────────────────

@@ -203,9 +203,15 @@ public class MyPalDbContext : DbContext
             .Property(x => x.ProductId)
             .ValueGeneratedNever();
 
+        // orders.status has a CHECK constraint for PascalCase ('Pending','Paid',
+        // 'Shipped','Delivered'). Lowercasing it (like the other enums below) makes
+        // every order INSERT fail with a 23514 violation, so write the enum name as-is.
+        // The read side still normalizes, so legacy/lowercase values parse fine.
         modelBuilder.Entity<Order>()
             .Property(x => x.Status)
-            .HasConversion(LowercaseEnumConverter<OrderStatus>());
+            .HasConversion(
+                v => v.HasValue ? v.Value.ToString() : null,
+                v => string.IsNullOrWhiteSpace(v) ? (OrderStatus?)null : ParseEnum<OrderStatus>(v));
 
         modelBuilder.Entity<Product>()
             .Property(x => x.Discriminator)
