@@ -31,6 +31,11 @@ public class Product
     [Column("stock_qty")]
     public int? StockQty { get; set; }
 
+    /// <summary>The user who created this listing. Enforced on update/delete so a
+    /// seller can only mutate their own products. Null for legacy/seeded catalog rows.</summary>
+    [Column("created_by")]
+    public Guid? CreatedBy { get; set; }
+
     [Column("discriminator")]
     public ProductDiscriminator? Discriminator { get; set; }
 

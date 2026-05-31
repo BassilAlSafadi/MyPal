@@ -20,6 +20,11 @@ public class User
     [Column("email")]
     public string Email { get; set; } = null!;
 
+    /// <summary>PBKDF2 password hash (format: pbkdf2_sha256$iterations$salt_b64$hash_b64).
+    /// Null for accounts created via Google OAuth or before password auth existed.</summary>
+    [Column("password_hash")]
+    public string? PasswordHash { get; set; }
+
     [Column("phone")]
     public string? Phone { get; set; }
 

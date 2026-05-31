@@ -113,6 +113,33 @@ app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "MyPal API v
 app.UseAuthentication();
 app.UseAuthorization();
 
+// ─── Internal-service gate (defense in depth) ────────────────────────────────
+// Every request reaches C# through the Go gateway, which injects X-Internal-Token.
+// Requiring it here means the C# space cannot be called directly with a forged
+// X-User-Id to impersonate users. Exempt: root health, Swagger, and the Google
+// OAuth routes (those are hit by the browser directly, not via the gateway).
+var internalServiceToken = builder.Configuration["INTERNAL_SERVICE_TOKEN"];
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path.Value ?? "";
+    var exempt = path == "/"
+        || path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/api/auth/google", StringComparison.OrdinalIgnoreCase);
+
+    if (!exempt && !string.IsNullOrEmpty(internalServiceToken))
+    {
+        var provided = context.Request.Headers["X-Internal-Token"].FirstOrDefault();
+        if (!CryptographicEquals(provided, internalServiceToken))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new { error = "Forbidden: requests must go through the gateway" });
+            return;
+        }
+    }
+
+    await next();
+});
+
 app.MapGet("/", async (MyPalDbContext db) =>
 {
     var dbOk = false;
@@ -177,6 +204,8 @@ app.MapPost("/api/auth/signup", async (SignupRequest request, HttpContext contex
 {
     if (string.IsNullOrWhiteSpace(request.Email))
         return Results.BadRequest(new { error = "Email is required" });
+    if (string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 8)
+        return Results.BadRequest(new { error = "Password must be at least 8 characters" });
 
     var user = await db.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
     if (user != null) return Results.BadRequest(new { error = "User already exists" });
@@ -195,6 +224,7 @@ app.MapPost("/api/auth/signup", async (SignupRequest request, HttpContext contex
         Country = string.IsNullOrWhiteSpace(request.Country) ? null : request.Country.Trim(),
         State = string.IsNullOrWhiteSpace(request.State) ? null : request.State.Trim(),
         City = string.IsNullOrWhiteSpace(request.City) ? null : request.City.Trim(),
+        PasswordHash = PasswordHasher.Hash(request.Password),
         IsBuyer = true,
         Roles = ["buyer"],
         CreatedAt = DateTime.UtcNow,
@@ -214,8 +244,28 @@ app.MapPost("/api/auth/signup", async (SignupRequest request, HttpContext contex
 
 app.MapPost("/api/auth/login", async (LoginRequest request, HttpContext context, MyPalDbContext db, IJwtService jwtService) =>
 {
-    var user = await db.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
+    if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
+        return Results.Unauthorized();
+
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Email == request.Email && u.IsDeleted != true);
     if (user == null) return Results.Unauthorized();
+
+    if (!string.IsNullOrEmpty(user.PasswordHash))
+    {
+        // Account has a password set — verify it.
+        if (!PasswordHasher.Verify(request.Password, user.PasswordHash))
+            return Results.Unauthorized();
+    }
+    else
+    {
+        // Legacy/OAuth account with no password yet. Trust-on-first-use: the next
+        // password login establishes the password for this account. This migrates
+        // pre-existing demo accounts without locking anyone out; new accounts always
+        // have a hash from signup so they take the verify branch above.
+        user.PasswordHash = PasswordHasher.Hash(request.Password);
+        user.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+    }
 
     var accessToken = jwtService.GenerateAccessToken(user);
     var refreshToken = jwtService.GenerateRefreshToken(user);
@@ -472,6 +522,7 @@ app.MapPost("/api/products", async (HttpRequest req, CreateProductRequest body, 
         Type         = body.Type,
         CurrentPrice = body.CurrentPrice,
         StockQty     = body.StockQty ?? 1,
+        CreatedBy    = user.Id,
         CreatedAt    = DateTime.UtcNow,
         UpdatedAt    = DateTime.UtcNow,
     };
@@ -503,10 +554,17 @@ app.MapPut("/api/products/{id:guid}", async (Guid id, HttpRequest req, UpdatePro
 {
     var user = await ResolveUserAsync(req, db);
     if (user == null) return Results.Unauthorized();
-    if (!user.IsSeller) return Results.Forbid();
+    // Return a real 403 JSON, not Results.Forbid() — the latter triggers the cookie
+    // auth handler's 302 redirect to /Account/AccessDenied, which is wrong for an API.
+    if (!user.IsSeller) return Results.Json(new { error = "Only sellers can edit listings" }, statusCode: StatusCodes.Status403Forbidden);
 
     var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.IsDeleted != true);
     if (product == null) return Results.NotFound(new { error = "Product not found" });
+
+    // Ownership: a seller may only edit their own listings. Legacy/seeded catalog
+    // rows (CreatedBy == null) are not owned by any seller and cannot be edited.
+    if (product.CreatedBy != user.Id)
+        return Results.Json(new { error = "You can only edit your own listings" }, statusCode: StatusCodes.Status403Forbidden);
 
     if (body.Name is not null)         product.Name         = body.Name.Trim();
     if (body.Description is not null)  product.Description  = body.Description;
@@ -526,10 +584,14 @@ app.MapDelete("/api/products/{id:guid}", async (Guid id, HttpRequest req, MyPalD
 {
     var user = await ResolveUserAsync(req, db);
     if (user == null) return Results.Unauthorized();
-    if (!user.IsSeller) return Results.Forbid();
+    if (!user.IsSeller) return Results.Json(new { error = "Only sellers can delete listings" }, statusCode: StatusCodes.Status403Forbidden);
 
     var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.IsDeleted != true);
     if (product == null) return Results.NotFound(new { error = "Product not found" });
+
+    // Ownership: a seller may only delete their own listings.
+    if (product.CreatedBy != user.Id)
+        return Results.Json(new { error = "You can only delete your own listings" }, statusCode: StatusCodes.Status403Forbidden);
 
     product.IsDeleted = true;
     product.UpdatedAt = DateTime.UtcNow;
@@ -582,9 +644,11 @@ app.MapPost("/api/orders", async (HttpRequest req, CreateOrderRequest body, MyPa
     if (body.Items == null || body.Items.Count == 0)
         return Results.BadRequest(new { error = "Order must contain at least one item" });
 
-    // Validate products and sum total
+    // Validate products, check stock, and sum total. Keep product references so
+    // we can decrement stock atomically with the order below.
     decimal total = 0m;
     var orderItems = new List<OrderItem>();
+    var purchasedProducts = new List<(Product Product, int Quantity)>();
     foreach (var item in body.Items)
     {
         var product = await db.Products.FirstOrDefaultAsync(p => p.Id == item.ProductId && p.IsDeleted != true);
@@ -592,9 +656,13 @@ app.MapPost("/api/orders", async (HttpRequest req, CreateOrderRequest body, MyPa
             return Results.BadRequest(new { error = $"Product {item.ProductId} not found" });
         if (item.Quantity <= 0)
             return Results.BadRequest(new { error = "Quantity must be > 0" });
+        // Enforce stock when the product tracks it (null = untracked/unlimited).
+        if (product.StockQty.HasValue && product.StockQty.Value < item.Quantity)
+            return Results.BadRequest(new { error = $"Insufficient stock for {product.Name}: {product.StockQty} left" });
 
         var price = product.CurrentPrice ?? 0m;
         total += price * item.Quantity;
+        purchasedProducts.Add((product, item.Quantity));
         orderItems.Add(new OrderItem
         {
             Id               = Guid.NewGuid(),
@@ -631,6 +699,36 @@ app.MapPost("/api/orders", async (HttpRequest req, CreateOrderRequest body, MyPa
     db.OrderItems.AddRange(orderItems);
     await db.SaveChangesAsync();
 
+    // The BEFORE-INSERT process_wallet_payment trigger recomputes wallet_amount_used,
+    // cod_amount_due, payment_method and debits the wallet. Reload so the in-memory
+    // entity (and the response) reflect the authoritative trigger-set values.
+    await db.Entry(order).ReloadAsync();
+
+    // Record the wallet spend in the ledger so balance and transaction history agree.
+    var walletSpent = order.WalletAmountUsed;
+    if (walletSpent > 0)
+    {
+        db.Transactions.Add(new Transaction
+        {
+            Id        = Guid.NewGuid(),
+            UserId    = user.Id,
+            Type      = "Purchase",
+            Amount    = -walletSpent,
+            OrderId   = order.Id,
+            CreatedAt = DateTime.UtcNow,
+        });
+    }
+
+    // Decrement stock for tracked products.
+    foreach (var (product, qty) in purchasedProducts)
+    {
+        if (product.StockQty.HasValue)
+        {
+            product.StockQty = Math.Max(0, product.StockQty.Value - qty);
+            product.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
     // Clear the cart atomically with the order so the frontend sees an empty cart
     var cart = await db.Carts.Include(c => c.CartItems)
         .FirstOrDefaultAsync(c => c.UserId == user.Id);
@@ -638,9 +736,9 @@ app.MapPost("/api/orders", async (HttpRequest req, CreateOrderRequest body, MyPa
     {
         db.CartItems.RemoveRange(cart.CartItems);
         db.Carts.Remove(cart);
-        await db.SaveChangesAsync();
     }
 
+    await db.SaveChangesAsync();
     await tx.CommitAsync();
 
     order.OrderItems = orderItems;
@@ -952,6 +1050,14 @@ app.MapDelete("/api/wishlist/{productId:guid}", async (Guid productId, HttpReque
 app.Run();
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+static bool CryptographicEquals(string? a, string? b)
+{
+    if (a is null || b is null) return false;
+    var ba = System.Text.Encoding.UTF8.GetBytes(a);
+    var bb = System.Text.Encoding.UTF8.GetBytes(b);
+    return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(ba, bb);
+}
 
 static void SeedWelcomeWallet(User user, MyPalDbContext db)
 {

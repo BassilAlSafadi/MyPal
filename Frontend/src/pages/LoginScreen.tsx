@@ -54,7 +54,10 @@ const LoginScreen = () => {
       await login(email, password);
       navigate('/home');
     } catch (err: any) {
-      setError(err.message || 'Invalid email or password');
+      // A 401 on the login endpoint means bad credentials — not an expired
+      // session. The API client's generic "Session expired" message would be
+      // confusing here, so override it for the login screen specifically.
+      setError(err?.status === 401 ? 'Invalid email or password' : (err?.message || 'Login failed'));
     }
   };
 
