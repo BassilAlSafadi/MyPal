@@ -17,6 +17,10 @@ envVarGroups:
     envVars:
       - key: JWT_SECRET
         sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
 
 services:
   # ── Public API Gateway ──────────────────────────────────────────────────
@@ -95,6 +99,14 @@ services:
       - key: GITHUB_TOKEN
         sync: false
       - key: HUGGING_FACE_API_KEY
+        sync: false
+      - key: MISTRAL_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: ENABLE_LLM_FALLBACK
+        value: "true"
+      - key: tavily_api_key
         sync: false
 
   # ── Go Support ───────────────────────────────────────────────────────────
