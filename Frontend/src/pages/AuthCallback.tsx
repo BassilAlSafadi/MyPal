@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
-import { tokenStore, apiClient } from '@/api/client';
+import { tokenStore, refreshTokenStore, apiClient } from '@/api/client';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 /**
@@ -47,10 +47,18 @@ const AuthCallback = () => {
 
     tokenStore.set(accessToken);
 
-    // Google's original refresh cookie was set on the C# domain (hf.space) and can't be
-    // read by the gateway-routed /refresh. Mint one on the gateway domain now so a reload
-    // doesn't force re-login. Fire-and-forget: profile fetch + navigation proceed regardless.
-    apiClient.post('/api/v1/auth/bootstrap-session', {}).catch(() => {});
+    // Google's refresh cookie landed on hf.space and can't be read by the gateway-routed
+    // /refresh. bootstrap-session mints one on the gateway domain. Then we immediately
+    // call /refresh (while the fresh access token is still valid) to get a body-based
+    // refresh token we can persist in localStorage — this survives iOS Safari's cross-site
+    // cookie blocking on subsequent reloads.
+    apiClient.post('/api/v1/auth/bootstrap-session', {})
+      .then(() => apiClient.post<any>('/api/v1/auth/refresh', {}))
+      .then((data) => {
+        const rt = data?.refresh_token ?? data?.data?.refresh_token;
+        if (rt) refreshTokenStore.set(rt);
+      })
+      .catch(() => {});
 
     apiClient.get<any>('/api/v1/users/me')
       .then(applyProfile)

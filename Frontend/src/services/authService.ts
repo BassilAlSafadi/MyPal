@@ -1,4 +1,4 @@
-import { apiClient, tokenStore } from '@/api/client';
+import { apiClient, tokenStore, refreshTokenStore } from '@/api/client';
 import { env } from '@/config/env';
 import { UserIdentity, LoginResponse } from '../../../shared/contracts/auth/identity';
 
@@ -30,6 +30,7 @@ export const authService = {
     });
 
     tokenStore.set(response.access_token);
+    if (response.refresh_token) refreshTokenStore.set(response.refresh_token);
     return normalizeUser(response.user);
   },
 
@@ -52,6 +53,7 @@ export const authService = {
     });
 
     tokenStore.set(response.access_token);
+    if (response.refresh_token) refreshTokenStore.set(response.refresh_token);
     return normalizeUser(response.user);
   },
 
@@ -72,6 +74,7 @@ export const authService = {
       await apiClient.post('/api/v1/auth/logout', {});
     } finally {
       tokenStore.clear();
+      refreshTokenStore.clear();
     }
   },
 };
