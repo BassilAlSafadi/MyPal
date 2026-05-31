@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/stores/authStore";
 import { PersonaOnboardingModal } from "@/components/PersonaOnboardingModal";
+import SessionInitializer from "@/components/SessionInitializer";
 import SplashScreen from "./pages/SplashScreen";
 import LoginScreen from "./pages/LoginScreen";
 import SignupScreen from "./pages/SignupScreen";
@@ -28,6 +29,7 @@ const App = () => (
   <TooltipProvider>
     <Toaster />
     <Sonner />
+    <SessionInitializer />
     <PersonaOnboardingModal />
     <BrowserRouter>
       <Routes>
@@ -43,6 +45,8 @@ const App = () => (
         <Route path="/wishlist" element={<ProtectedRoute><WishlistScreen /></ProtectedRoute>} />
         <Route path="/wallet" element={<ProtectedRoute><WalletScreen /></ProtectedRoute>} />
         <Route path="/sell" element={<ProtectedRoute><SellScreen /></ProtectedRoute>} />
+        {/* /my-listings → /sell until per-user listing ownership is modelled in the DB */}
+        <Route path="/my-listings" element={<Navigate to="/sell" replace />} />
         <Route path="/settings" element={<ProtectedRoute><SettingsScreen /></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
       </Routes>
