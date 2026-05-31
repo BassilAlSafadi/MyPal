@@ -1046,7 +1046,7 @@ public record LoginRequest(string Email, string? Password);
 public record SignupRequest(
     string Email, string Password, string? Name,
     string? Country, string? State, string? City);
-public record RefreshRequest(string? RefreshToken);
+public record RefreshRequest([property: JsonPropertyName("refresh_token")] string? RefreshToken);
 
 public record UpdateProfileRequest(
     string? FirstName, string? LastName,
