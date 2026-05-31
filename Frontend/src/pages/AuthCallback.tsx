@@ -53,10 +53,6 @@ const AuthCallback = () => {
     // including iOS Safari which blocks cross-site httpOnly cookies.
     if (refreshToken) refreshTokenStore.set(refreshToken);
 
-    // Also plant a gateway-domain httpOnly cookie as a belt-and-suspenders
-    // fallback for browsers that do support cross-site cookies.
-    apiClient.post('/api/v1/auth/bootstrap-session', {}).catch(() => {});
-
     apiClient.get<any>('/api/v1/users/me')
       .then(applyProfile)
       .catch(() => {
