@@ -625,9 +625,23 @@ app.MapPost("/api/orders", async (HttpRequest req, CreateOrderRequest body, MyPa
     foreach (var item in orderItems)
         item.OrderId = order.Id;
 
+    await using var tx = await db.Database.BeginTransactionAsync();
+
     db.Orders.Add(order);
     db.OrderItems.AddRange(orderItems);
     await db.SaveChangesAsync();
+
+    // Clear the cart atomically with the order so the frontend sees an empty cart
+    var cart = await db.Carts.Include(c => c.CartItems)
+        .FirstOrDefaultAsync(c => c.UserId == user.Id);
+    if (cart != null)
+    {
+        db.CartItems.RemoveRange(cart.CartItems);
+        db.Carts.Remove(cart);
+        await db.SaveChangesAsync();
+    }
+
+    await tx.CommitAsync();
 
     order.OrderItems = orderItems;
     return Results.Created($"/api/orders/{order.Id}", ToOrderResponse(order));
