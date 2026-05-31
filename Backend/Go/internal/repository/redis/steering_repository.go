@@ -24,15 +24,17 @@ func NewSteeringRepository(client *redis.Client) SteeringRepository {
 
 func (r *steeringRepository) SetSteering(ctx context.Context, userID string, weights map[string]float64) error {
 	key := fmt.Sprintf("user_steering:%s", userID)
-	
+
 	// Convert weights to map[string]interface{} for HSet
 	fields := make(map[string]interface{})
 	for k, v := range weights {
 		fields[k] = v
 	}
 
-	err := r.client.HSet(ctx, key, fields).Err()
-	if err != nil {
+	pipe := r.client.TxPipeline()
+	pipe.HSet(ctx, key, fields)
+	pipe.Expire(ctx, key, redisCacheTTL)
+	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("redis.SetSteering: %w", err)
 	}
 	return nil
@@ -40,10 +42,15 @@ func (r *steeringRepository) SetSteering(ctx context.Context, userID string, wei
 
 func (r *steeringRepository) GetSteering(ctx context.Context, userID string) (map[string]float64, error) {
 	key := fmt.Sprintf("user_steering:%s", userID)
-	
+
 	res, err := r.client.HGetAll(ctx, key).Result()
 	if err != nil {
 		return nil, fmt.Errorf("redis.GetSteering: %w", err)
+	}
+	if len(res) > 0 {
+		if err := r.client.Expire(ctx, key, redisCacheTTL).Err(); err != nil {
+			return nil, fmt.Errorf("redis.GetSteering: refresh ttl: %w", err)
+		}
 	}
 
 	weights := make(map[string]float64)

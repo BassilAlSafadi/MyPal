@@ -6,6 +6,8 @@ export interface SemanticSearchResult {
   id: string;
   title: string;
   category?: string;
+  price?: number;
+  image_url?: string;
   score: number;
 
   explanation: {

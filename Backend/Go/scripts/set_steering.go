@@ -6,10 +6,13 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 )
+
+const steeringCacheTTL = 5 * time.Hour
 
 func main() {
 	// 1. Load .env from project root
@@ -55,8 +58,10 @@ func main() {
 
 	// 4. Execute HSET
 	redisKey := fmt.Sprintf("user_steering:%s", userID)
-	err = rdb.HSet(ctx, redisKey, weights).Err()
-	if err != nil {
+	pipe := rdb.TxPipeline()
+	pipe.HSet(ctx, redisKey, weights)
+	pipe.Expire(ctx, redisKey, steeringCacheTTL)
+	if _, err := pipe.Exec(ctx); err != nil {
 		log.Fatalf("Failed to set Redis weights: %v", err)
 	}
 

@@ -1,8 +1,10 @@
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '@/components/ThemeProvider';
+import type { Theme } from '@/components/ThemeProvider';
 import { useAuthStore } from '@/stores/authStore';
 import { useMockStore } from '@/lib/useMockStore';
-import { mockUser, getTrustBadgeConfig } from '@/mock/user';
+import { userService } from '@/services/userService';
+import { useAsync } from '@/hooks/useAsync';
 import { 
   Settings, User, Shield, Phone, ChevronRight, Moon, Sun, Monitor,
   Bell, BellOff, Package, Trash2, Download, FileText, Lock, LogOut,
@@ -28,8 +30,13 @@ import { cn } from '@/lib/utils';
 const SettingsScreen = () => {
   const navigate = useNavigate();
   const { theme, setTheme, resolvedTheme } = useTheme();
-  const { phone, userName, logout } = useAuthStore();
+  const logout = useAuthStore((s) => s.logout);
   const { notifications, updateNotificationPref, clearSearchHistory } = useMockStore();
+  const { data: profile } = useAsync(() => userService.getMe(), []);
+  const fullName = profile?.fullName ?? '';
+  const phone = profile?.phone ?? '';
+  const initials = (fullName || profile?.email || 'U')
+    .split(' ').map((s) => s[0]).join('').slice(0, 2).toUpperCase();
 
   const handleLogout = () => {
     logout();
@@ -45,13 +52,11 @@ const SettingsScreen = () => {
     toast.info('Feature coming soon');
   };
 
-  const themeOptions: { mode: string; icon: React.ReactNode; label: string }[] = [
+  const themeOptions: { mode: Theme; icon: React.ReactNode; label: string }[] = [
     { mode: 'dark', icon: <Moon className="w-4 h-4" />, label: 'Dark' },
     { mode: 'light', icon: <Sun className="w-4 h-4" />, label: 'Light' },
     { mode: 'system', icon: <Monitor className="w-4 h-4" />, label: 'System' },
   ];
-
-  const trustBadge = getTrustBadgeConfig(mockUser.trustTier);
 
   return (
     <div className="min-h-screen bg-background pb-24">
@@ -67,12 +72,12 @@ const SettingsScreen = () => {
             <div className="p-4 flex items-center gap-3">
               <div className="w-12 h-12 rounded-full bg-gradient-cobalt flex items-center justify-center">
                 <span className="text-lg font-bold text-primary-foreground">
-                  {mockUser.avatarInitials}
+                  {initials}
                 </span>
               </div>
               <div className="flex-1">
-                <p className="text-sm font-medium text-foreground">{userName}</p>
-                <p className="text-xs text-muted-foreground">{phone || '+1 (555) 000-0000'}</p>
+                <p className="text-sm font-medium text-foreground">{fullName || profile?.email}</p>
+                <p className="text-xs text-muted-foreground">{phone || profile?.email}</p>
               </div>
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
             </div>
@@ -83,7 +88,7 @@ const SettingsScreen = () => {
         <div className="space-y-2">
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Selling</h3>
           <div className="glass-card divide-y divide-border">
-            <button 
+            <button
               onClick={() => navigate('/my-listings')}
               className="w-full p-4 flex items-center gap-3"
             >
@@ -93,18 +98,10 @@ const SettingsScreen = () => {
             </button>
             <div className="p-4 flex items-center gap-3">
               <Star className="w-4 h-4 text-cobalt-light" />
-              <span className="flex-1 text-sm text-foreground">Trust Score</span>
-              <div className="flex items-center gap-2">
-                <span className={cn(
-                  "text-xs px-2 py-0.5 rounded-full font-medium",
-                  trustBadge.color
-                )}>
-                  {trustBadge.label}
-                </span>
-                <span className="text-sm font-semibold text-foreground">
-                  {mockUser.trustScore}
-                </span>
-              </div>
+              <span className="flex-1 text-sm text-foreground">Account Type</span>
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-cobalt-light/10 text-cobalt-light capitalize">
+                {profile?.isSeller ? 'Seller' : 'Buyer'}
+              </span>
             </div>
           </div>
         </div>

@@ -1,19 +1,25 @@
 import { useNavigate } from 'react-router-dom';
 import { useMockStore } from '@/lib/useMockStore';
-import { mockProducts } from '@/mock/products';
+import { productService } from '@/services/productService';
+import { walletService } from '@/services/walletService';
+import { searchService } from '@/services/searchService';
+import { useAsync } from '@/hooks/useAsync';
 import { 
   Search, Sparkles, TrendingUp, ChevronRight, ArrowRight,
   Smartphone, Shirt, Home, Dumbbell, BookOpen, Car, Palette, Briefcase,
-  Clock, Package, Globe, Database, Terminal, Loader2
+  Clock, Package, Globe, Database, Terminal, Loader2, Star, Tag
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import BottomNav from '@/components/BottomNav';
 import ProductCard from '@/components/ProductCard';
+import { ProductPreviewDrawer, ProductPreview } from '@/components/ProductPreviewDrawer';
 import LogoIcon from '@/components/LogoIcon';
 import { useState, useEffect, useRef } from 'react';
 import { useSearchStore } from '@/stores/searchStore';
+import { useWishlistStore } from '@/stores/wishlistStore';
 import { cn } from '@/lib/utils';
+import { PRODUCT_IMAGE_FALLBACK } from '@/lib/productImage';
 import { useMemo } from 'react';
 
 const categories = [
@@ -29,10 +35,29 @@ const categories = [
 
 const HomeScreen = () => {
   const navigate = useNavigate();
-  const { balance, recentViews } = useMockStore();
+  const { recentViews } = useMockStore();
   const { mode, setMode, runSearch, isSearching, consoleLogs } = useSearchStore();
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedProduct, setSelectedProduct] = useState<ProductPreview | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const loadWishlist = useWishlistStore((s) => s.load);
+  const { data: catalog } = useAsync(() => productService.list({ pageSize: 24 }), []);
+  const { data: wallet } = useAsync(() => walletService.getBalance(), []);
+  // Personalized recommendations — refreshed every time the user visits Home
+  const { data: recData, loading: recLoading, refetch: refetchRecs } =
+    useAsync(() => searchService.getPersonalizedRecommendations(), []);
+  const products = catalog?.products ?? [];
+  const balance  = wallet?.balance ?? 0;
+
+  useEffect(() => { loadWishlist(); }, [loadWishlist]);
+
+  // Refresh recommendations when the tab regains focus (user comes back from AI search)
+  useEffect(() => {
+    const onFocus = () => refetchRecs();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refetchRecs]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -59,19 +84,61 @@ const HomeScreen = () => {
   };
 
   const trendingProducts = useMemo(() => {
-    return [...mockProducts].sort((a, b) => b.rating - a.rating).slice(0, 6);
-  }, [mockProducts]);
+    return [...products].sort((a, b) => b.rating - a.rating).slice(0, 6);
+  }, [products]);
 
+  // Real personalized recommendations from the AI engine.
+  // Falls back to newest products while loading or on error.
   const recommendedProducts = useMemo(() => {
-    return [...mockProducts].sort(() => Math.random() - 0.5).slice(0, 4);
-  }, [mockProducts]);
+    if (recData?.products?.length) {
+      return recData.products.map((r) => ({
+        id:       r.id,
+        title:    r.title,
+        price:    r.price ?? 0,
+        image:    r.image ?? '',
+        rating:   0,
+        reviewCount: 0,
+        category: r.category,
+        source:   'marketplace' as const,
+        seller:   { name: 'MyPal', isMyPal: true },
+      }));
+    }
+    return products.slice(0, 4);
+  }, [recData, products]);
 
   const recentlyViewedProducts = useMemo(() => {
     return recentViews
-      .map(id => mockProducts.find(p => p.id === id))
+      .map(id => products.find(p => p.id === id))
       .filter(Boolean)
-      .slice(0, 6) as typeof mockProducts;
-  }, [recentViews, mockProducts]);
+      .slice(0, 6) as typeof products;
+  }, [recentViews, products]);
+
+  const openProduct = async (product: any) => {
+    const preview: ProductPreview = {
+      ...product,
+      id: product.id,
+      title: product.title,
+      price: Number(product.price ?? 0),
+      image: product.image || PRODUCT_IMAGE_FALLBACK,
+      source: product.source ?? 'marketplace',
+      seller: product.seller ?? { name: 'MyPal', isMyPal: true },
+      rating: Number(product.rating ?? 0),
+      description: product.description,
+      category: product.category,
+    };
+    setSelectedProduct(preview);
+
+    try {
+      const fullProduct = await productService.get(product.id);
+      setSelectedProduct({
+        ...fullProduct,
+        source: 'marketplace',
+        seller: fullProduct.seller ?? preview.seller,
+      });
+    } catch {
+      // Keep the immediate preview if the detail endpoint is unavailable.
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background pb-24">
@@ -80,6 +147,12 @@ const HomeScreen = () => {
         <div className="flex items-center justify-between">
           <LogoIcon size={56} />
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate('/sell')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-cobalt text-primary-foreground text-xs font-bold shadow-sm hover:opacity-90 transition-opacity"
+            >
+              <Tag className="w-3.5 h-3.5" /> Sell
+            </button>
             <div className="glass-card px-3 py-1.5 flex items-center gap-1.5 shadow-sm">
               <span className="text-sm font-bold text-foreground">
                 ${balance.toFixed(2)}
@@ -191,10 +264,59 @@ const HomeScreen = () => {
           <div className="flex gap-4 overflow-x-auto scrollbar-hide -mx-4 px-4">
             {trendingProducts.map((product) => (
               <div key={product.id} className="flex-shrink-0 w-[180px]">
-                <ProductCard product={product} />
+                <ProductCard product={product} onClick={() => openProduct(product)} />
               </div>
             ))}
           </div>
+        </section>
+
+        {/* Recommended For You — AI-personalised, updates with searches/orders/wishlist */}
+        <section>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Star className="w-4 h-4 text-cobalt-light" />
+              <h2 className="text-lg font-serif font-bold text-foreground">For You</h2>
+              {!recLoading && recData && (
+                <span className={cn(
+                  "text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full",
+                  recData.persona === 'personalized'
+                    ? "bg-cobalt-light/10 text-cobalt-light"
+                    : "bg-muted text-muted-foreground"
+                )}>
+                  {recData.persona === 'personalized' ? '✦ Personalised' : 'Popular'}
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => navigate('/ai-search')}
+              className="text-xs font-bold text-cobalt-light flex items-center gap-0.5 hover:underline"
+            >
+              Search more <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {recLoading ? (
+            /* Skeleton while AI engine is running */
+            <div className="flex gap-4 overflow-x-auto scrollbar-hide -mx-4 px-4">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="flex-shrink-0 w-[180px] glass-card overflow-hidden animate-pulse">
+                  <div className="aspect-square bg-secondary/60" />
+                  <div className="p-4 space-y-2">
+                    <div className="h-3 bg-secondary/60 rounded w-3/4" />
+                    <div className="h-3 bg-secondary/60 rounded w-1/2" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : recommendedProducts.length > 0 ? (
+            <div className="flex gap-4 overflow-x-auto scrollbar-hide -mx-4 px-4">
+              {recommendedProducts.map((product) => (
+                <div key={product.id} className="flex-shrink-0 w-[180px]">
+                  <ProductCard product={product} onClick={() => openProduct(product)} />
+                </div>
+              ))}
+            </div>
+          ) : null}
         </section>
 
         {/* Categories Grid (Enhanced Density) */}
@@ -233,7 +355,7 @@ const HomeScreen = () => {
             <div className="flex gap-4 overflow-x-auto scrollbar-hide -mx-4 px-4">
               {recentlyViewedProducts.map((product) => (
                 <div key={product.id} className="flex-shrink-0 w-[180px]">
-                  <ProductCard product={product} />
+                  <ProductCard product={product} onClick={() => openProduct(product)} />
                 </div>
               ))}
             </div>
@@ -247,6 +369,11 @@ const HomeScreen = () => {
         </section>
       </div>
 
+      <ProductPreviewDrawer
+        product={selectedProduct}
+        isOpen={!!selectedProduct}
+        onClose={() => setSelectedProduct(null)}
+      />
       <BottomNav />
     </div>
   );

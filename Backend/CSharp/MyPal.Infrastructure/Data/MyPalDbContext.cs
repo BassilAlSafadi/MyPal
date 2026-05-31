@@ -31,6 +31,7 @@ public class MyPalDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<UserAlgorithmSteering> UserAlgorithmSteerings => Set<UserAlgorithmSteering>();
     public DbSet<Vendor> Vendors => Set<Vendor>();
+    public DbSet<WishlistItem> WishlistItems => Set<WishlistItem>();
     public DbSet<OutboxEvent> OutboxEvents => Set<OutboxEvent>();
     public DbSet<ProcessedEvent> ProcessedEvents => Set<ProcessedEvent>();
     public DbSet<SagaStateEntity> SagaStates => Set<SagaStateEntity>();
@@ -264,6 +265,24 @@ public class MyPalDbContext : DbContext
             .WithMany(x => x.LifeTrackHistories)
             .HasForeignKey(x => x.UserId)
             .OnDelete(DeleteBehavior.SetNull);
+
+        // --- WishlistItem: one row per (user, product) ---
+        modelBuilder.Entity<WishlistItem>()
+            .HasOne(x => x.User)
+            .WithMany()
+            .HasForeignKey(x => x.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<WishlistItem>()
+            .HasOne(x => x.Product)
+            .WithMany()
+            .HasForeignKey(x => x.ProductId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<WishlistItem>()
+            .HasIndex(x => new { x.UserId, x.ProductId })
+            .IsUnique()
+            .HasDatabaseName("IX_wishlist_items_user_product");
     }
 
     private static ValueConverter<TEnum?, string?> LowercaseEnumConverter<TEnum>()

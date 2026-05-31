@@ -187,6 +187,9 @@ app.MapPost("/api/auth/signup", async (SignupRequest request, HttpContext contex
         Email = request.Email,
         FirstName = nameParts.Length > 0 ? nameParts[0] : displayName,
         LastName = nameParts.Length > 1 ? string.Join(" ", nameParts.Skip(1)) : "",
+        Country = string.IsNullOrWhiteSpace(request.Country) ? null : request.Country.Trim(),
+        State = string.IsNullOrWhiteSpace(request.State) ? null : request.State.Trim(),
+        City = string.IsNullOrWhiteSpace(request.City) ? null : request.City.Trim(),
         IsBuyer = true,
         Roles = ["buyer"],
         CreatedAt = DateTime.UtcNow,
@@ -194,6 +197,7 @@ app.MapPost("/api/auth/signup", async (SignupRequest request, HttpContext contex
     };
 
     db.Users.Add(user);
+    SeedWelcomeWallet(user, db);
     await db.SaveChangesAsync();
 
     var accessToken = jwtService.GenerateAccessToken(user);
@@ -244,6 +248,7 @@ app.MapGet("/api/auth/google/complete", async (HttpContext context, MyPalDbConte
             UpdatedAt = DateTime.UtcNow
         };
         db.Users.Add(user);
+        SeedWelcomeWallet(user, db);
         await db.SaveChangesAsync();
     }
 
@@ -302,8 +307,12 @@ app.MapPut("/api/users/me", async (HttpRequest req, UpdateProfileRequest body, M
 
     if (!string.IsNullOrWhiteSpace(body.FirstName)) user.FirstName = body.FirstName.Trim();
     if (!string.IsNullOrWhiteSpace(body.LastName))  user.LastName  = body.LastName.Trim();
-    if (body.Phone is not null)                      user.Phone     = body.Phone;
-    if (body.LifeTrackStory is not null)             user.LifeTrackStory = body.LifeTrackStory;
+    if (body.Phone          is not null) user.Phone          = body.Phone;
+    if (body.LifeTrackStory is not null) user.LifeTrackStory = body.LifeTrackStory;
+    // Location — set by signup form AND by the post-Google-OAuth onboarding screen
+    if (!string.IsNullOrWhiteSpace(body.Country)) user.Country = body.Country.Trim();
+    if (!string.IsNullOrWhiteSpace(body.State))   user.State   = body.State.Trim();
+    if (!string.IsNullOrWhiteSpace(body.City))    user.City    = body.City.Trim();
     user.UpdatedAt = DateTime.UtcNow;
 
     await db.SaveChangesAsync();
@@ -345,9 +354,26 @@ app.MapGet("/api/products", async (MyPalDbContext db, int page = 1, int pageSize
         .OrderByDescending(p => p.CreatedAt)
         .Skip((page - 1) * pageSize)
         .Take(pageSize)
-        .Select(p => new ProductResponse(
-            p.Id, p.Name, p.Description, p.Category, p.Type,
-            p.CurrentPrice, p.StockQty, p.CreatedAt, p.UpdatedAt))
+        .Select(p => new
+        {
+            id            = p.Id,
+            name          = p.Name,
+            description   = p.Description,
+            category      = p.Category,
+            type          = p.Type,
+            current_price = p.CurrentPrice,
+            stock_qty     = p.StockQty,
+            rating        = p.ProductReviews.Where(r => r.Score != null).Average(r => (double?)r.Score) ?? 0,
+            review_count  = p.ProductReviews.Count,
+            image         = p.ProductMedia.OrderBy(m => m.DisplayOrder).Select(m => m.Url).FirstOrDefault(),
+            media         = p.ProductMedia.OrderBy(m => m.DisplayOrder)
+                             .Select(m => new { m.Id, m.Url, m.MediaType, display_order = m.DisplayOrder })
+                             .ToList(),
+            // No vendor/seller table exists in this DB; the catalog is MyPal-resident inventory.
+            seller        = new { name = "MyPal", is_mypal = true },
+            created_at    = p.CreatedAt,
+            updated_at    = p.UpdatedAt,
+        })
         .ToListAsync();
 
     return Results.Ok(new { total, page, pageSize, products = results });
@@ -358,9 +384,12 @@ app.MapGet("/api/products/{id:guid}", async (Guid id, MyPalDbContext db) =>
     var p = await db.Products
         .Include(x => x.ProductMedia)
         .Include(x => x.ProductAttributes)
+        .Include(x => x.ProductReviews)
         .FirstOrDefaultAsync(x => x.Id == id && x.IsDeleted != true);
 
     if (p == null) return Results.NotFound(new { error = "Product not found" });
+
+    var scored = p.ProductReviews.Where(r => r.Score != null).ToList();
 
     return Results.Ok(new
     {
@@ -371,8 +400,16 @@ app.MapGet("/api/products/{id:guid}", async (Guid id, MyPalDbContext db) =>
         type          = p.Type,
         current_price = p.CurrentPrice,
         stock_qty     = p.StockQty,
-        media         = p.ProductMedia.Select(m => new { m.Id, m.Url, m.MediaType }),
+        rating        = scored.Count > 0 ? scored.Average(r => r.Score!.Value) : 0,
+        review_count  = p.ProductReviews.Count,
+        image         = p.ProductMedia.OrderBy(m => m.DisplayOrder).Select(m => m.Url).FirstOrDefault(),
+        // No vendor/seller table exists in this DB; the catalog is MyPal-resident inventory.
+        seller        = new { name = "MyPal", is_mypal = true },
+        media         = p.ProductMedia.OrderBy(m => m.DisplayOrder)
+                         .Select(m => new { m.Id, m.Url, m.MediaType, display_order = m.DisplayOrder }),
         attributes    = p.ProductAttributes.Select(a => new { a.Id, a.Name, a.Value }),
+        reviews       = p.ProductReviews.OrderByDescending(r => r.CreatedAt).Take(20)
+                          .Select(r => new { r.Id, score = r.Score, comment = r.Comment, created_at = r.CreatedAt }),
         created_at    = p.CreatedAt,
         updated_at    = p.UpdatedAt,
     });
@@ -382,10 +419,24 @@ app.MapPost("/api/products", async (HttpRequest req, CreateProductRequest body, 
 {
     var user = await ResolveUserAsync(req, db);
     if (user == null) return Results.Unauthorized();
-    if (!user.IsSeller) return Results.Forbid();
 
     if (string.IsNullOrWhiteSpace(body.Name))
         return Results.BadRequest(new { error = "Name is required" });
+    if (body.CurrentPrice is null or <= 0)
+        return Results.BadRequest(new { error = "A price greater than 0 is required" });
+
+    var media = (body.Media ?? new List<ProductMediaInput>())
+        .Where(m => !string.IsNullOrWhiteSpace(m.Url))
+        .ToList();
+    if (media.Count == 0)
+        return Results.BadRequest(new { error = "At least one product photo is required" });
+
+    // Listing a product makes the user a seller.
+    if (!user.IsSeller)
+    {
+        user.IsSeller = true;
+        user.UpdatedAt = DateTime.UtcNow;
+    }
 
     var product = new Product
     {
@@ -395,10 +446,25 @@ app.MapPost("/api/products", async (HttpRequest req, CreateProductRequest body, 
         Category     = body.Category,
         Type         = body.Type,
         CurrentPrice = body.CurrentPrice,
-        StockQty     = body.StockQty ?? 0,
+        StockQty     = body.StockQty ?? 1,
         CreatedAt    = DateTime.UtcNow,
         UpdatedAt    = DateTime.UtcNow,
     };
+
+    var order = 0;
+    foreach (var m in media)
+    {
+        product.ProductMedia.Add(new ProductMedia
+        {
+            Id           = Guid.NewGuid(),
+            ProductId    = product.Id,
+            Url          = m.Url.Trim(),
+            MediaType    = string.IsNullOrWhiteSpace(m.MediaType) ? "photo" : m.MediaType!.Trim(),
+            DisplayOrder = m.DisplayOrder ?? order,
+            CreatedAt    = DateTime.UtcNow,
+        });
+        order++;
+    }
 
     db.Products.Add(product);
     await db.SaveChangesAsync();
@@ -660,9 +726,209 @@ app.MapPatch("/api/notifications/{id:guid}/read", async (Guid id, HttpRequest re
     return Results.Ok(new { ok = true });
 });
 
+// ─── Wallet ────────────────────────────────────────────────────────────────
+
+app.MapGet("/api/wallet", async (HttpRequest req, MyPalDbContext db) =>
+{
+    var user = await ResolveUserAsync(req, db);
+    if (user == null) return Results.Unauthorized();
+
+    // Funds tied up in not-yet-completed orders are shown as "escrow".
+    var escrow = await db.Orders
+        .Where(o => o.UserId == user.Id && o.Status == OrderStatus.Pending)
+        .SumAsync(o => (decimal?)o.WalletAmountUsed) ?? 0m;
+
+    return Results.Ok(new
+    {
+        balance  = user.WalletBalance ?? 0m,
+        escrow,
+        currency = "USD",
+    });
+});
+
+app.MapGet("/api/wallet/transactions", async (HttpRequest req, MyPalDbContext db, int page = 1, int pageSize = 50) =>
+{
+    var user = await ResolveUserAsync(req, db);
+    if (user == null) return Results.Unauthorized();
+
+    if (page < 1) page = 1;
+    if (pageSize is < 1 or > 100) pageSize = 50;
+
+    var query = db.Transactions.Where(t => t.UserId == user.Id);
+    var total = await query.CountAsync();
+    var txns = await query
+        .OrderByDescending(t => t.CreatedAt)
+        .Skip((page - 1) * pageSize)
+        .Take(pageSize)
+        .Select(t => new
+        {
+            id         = t.Id,
+            type       = t.Type,
+            amount     = t.Amount,
+            order_id   = t.OrderId,
+            created_at = t.CreatedAt,
+        })
+        .ToListAsync();
+
+    return Results.Ok(new { total, page, pageSize, transactions = txns });
+});
+
+app.MapPost("/api/wallet/deposit", async (HttpRequest req, WalletAmountRequest body, MyPalDbContext db) =>
+{
+    var user = await ResolveUserAsync(req, db);
+    if (user == null) return Results.Unauthorized();
+    if (body.Amount <= 0) return Results.BadRequest(new { error = "Amount must be greater than zero" });
+
+    user.WalletBalance = (user.WalletBalance ?? 0m) + body.Amount;
+    user.UpdatedAt = DateTime.UtcNow;
+
+    // transactions.type CHECK allows only 'Purchase' | 'Refund' | 'Deposit'.
+    db.Transactions.Add(new Transaction
+    {
+        Id        = Guid.NewGuid(),
+        UserId    = user.Id,
+        Type      = "Deposit",
+        Amount    = body.Amount,
+        CreatedAt = DateTime.UtcNow,
+    });
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new { balance = user.WalletBalance });
+});
+
+app.MapPost("/api/wallet/withdraw", async (HttpRequest req, WalletAmountRequest body, MyPalDbContext db) =>
+{
+    var user = await ResolveUserAsync(req, db);
+    if (user == null) return Results.Unauthorized();
+    if (body.Amount <= 0) return Results.BadRequest(new { error = "Amount must be greater than zero" });
+
+    var balance = user.WalletBalance ?? 0m;
+    if (balance < body.Amount) return Results.BadRequest(new { error = "Insufficient funds" });
+
+    user.WalletBalance = balance - body.Amount;
+    user.UpdatedAt = DateTime.UtcNow;
+
+    // A withdrawal is recorded as a negative-amount Deposit so it satisfies the
+    // transactions.type CHECK ('Purchase' | 'Refund' | 'Deposit') while still
+    // showing as an outflow in the ledger.
+    db.Transactions.Add(new Transaction
+    {
+        Id        = Guid.NewGuid(),
+        UserId    = user.Id,
+        Type      = "Deposit",
+        Amount    = -body.Amount,
+        CreatedAt = DateTime.UtcNow,
+    });
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new { balance = user.WalletBalance });
+});
+
+// ─── Listings (the authenticated seller's own products) ──────────────────────
+
+app.MapGet("/api/listings", async (HttpRequest req, MyPalDbContext db) =>
+{
+    var user = await ResolveUserAsync(req, db);
+    if (user == null) return Results.Unauthorized();
+
+    // The products schema has no per-user owner/seller column in this database,
+    // so a user's own listings cannot be derived yet. Returns an empty set until
+    // product ownership is modelled. (Endpoint exists so the client has a real
+    // source instead of mock listings.)
+    return Results.Ok(new { listings = Array.Empty<object>() });
+});
+
+// ─── Wishlist ────────────────────────────────────────────────────────────────
+
+app.MapGet("/api/wishlist", async (HttpRequest req, MyPalDbContext db) =>
+{
+    var user = await ResolveUserAsync(req, db);
+    if (user == null) return Results.Unauthorized();
+
+    var items = await db.WishlistItems
+        .Where(w => w.UserId == user.Id && w.Product != null && w.Product.IsDeleted != true)
+        .OrderByDescending(w => w.CreatedAt)
+        .Select(w => new
+        {
+            id            = w.ProductId,
+            name          = w.Product!.Name,
+            description   = w.Product.Description,
+            category      = w.Product.Category,
+            type          = w.Product.Type,
+            current_price = w.Product.CurrentPrice,
+            stock_qty     = w.Product.StockQty,
+            rating        = w.Product.ProductReviews.Where(r => r.Score != null).Average(r => (double?)r.Score) ?? 0,
+            review_count  = w.Product.ProductReviews.Count,
+            image         = w.Product.ProductMedia.OrderBy(m => m.DisplayOrder).Select(m => m.Url).FirstOrDefault(),
+            media         = w.Product.ProductMedia.OrderBy(m => m.DisplayOrder)
+                             .Select(m => new { m.Id, m.Url, m.MediaType, display_order = m.DisplayOrder })
+                             .ToList(),
+            seller        = new { name = "MyPal", is_mypal = true },
+            added_at      = w.CreatedAt,
+        })
+        .ToListAsync();
+
+    return Results.Ok(new { items });
+});
+
+app.MapPost("/api/wishlist", async (HttpRequest req, WishlistRequest body, MyPalDbContext db) =>
+{
+    var user = await ResolveUserAsync(req, db);
+    if (user == null) return Results.Unauthorized();
+
+    var product = await db.Products.FirstOrDefaultAsync(p => p.Id == body.ProductId && p.IsDeleted != true);
+    if (product == null) return Results.NotFound(new { error = "Product not found" });
+
+    var exists = await db.WishlistItems.AnyAsync(w => w.UserId == user.Id && w.ProductId == body.ProductId);
+    if (!exists)
+    {
+        db.WishlistItems.Add(new WishlistItem
+        {
+            Id        = Guid.NewGuid(),
+            UserId    = user.Id,
+            ProductId = body.ProductId,
+            CreatedAt = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+    }
+
+    return Results.Ok(new { ok = true });
+});
+
+app.MapDelete("/api/wishlist/{productId:guid}", async (Guid productId, HttpRequest req, MyPalDbContext db) =>
+{
+    var user = await ResolveUserAsync(req, db);
+    if (user == null) return Results.Unauthorized();
+
+    var item = await db.WishlistItems.FirstOrDefaultAsync(w => w.UserId == user.Id && w.ProductId == productId);
+    if (item != null)
+    {
+        db.WishlistItems.Remove(item);
+        await db.SaveChangesAsync();
+    }
+
+    return Results.Ok(new { ok = true });
+});
+
 app.Run();
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+static void SeedWelcomeWallet(User user, MyPalDbContext db)
+{
+    // Simulated starting funds. MyPal is a demo marketplace — wallet money is
+    // fake but persisted in the DB so deposits/withdrawals/purchases behave for real.
+    const decimal welcomeAmount = 1000.00m;
+    user.WalletBalance = welcomeAmount;
+    db.Transactions.Add(new Transaction
+    {
+        Id        = Guid.NewGuid(),
+        UserId    = user.Id,
+        Type      = "Deposit",
+        Amount    = welcomeAmount,
+        CreatedAt = DateTime.UtcNow,
+    });
+}
 
 static async Task<User?> ResolveUserAsync(HttpRequest req, MyPalDbContext db)
 {
@@ -709,7 +975,8 @@ static UserIdentityResponse ToUserIdentity(User user)
         user.FirstName, user.LastName,
         user.Phone, user.WalletBalance,
         user.IsBuyer, user.IsSeller,
-        user.Roles, user.CreatedAt, user.UpdatedAt);
+        user.Roles, user.CreatedAt, user.UpdatedAt,
+        user.Country, user.State, user.City);
 }
 
 static void SetRefreshCookie(HttpContext context, string refreshToken)
@@ -727,12 +994,15 @@ static void SetRefreshCookie(HttpContext context, string refreshToken)
 // ─── Request / Response records ─────────────────────────────────────────────
 
 public record LoginRequest(string Email, string? Password);
-public record SignupRequest(string Email, string Password, string? Name);
+public record SignupRequest(
+    string Email, string Password, string? Name,
+    string? Country, string? State, string? City);
 public record RefreshRequest(string? RefreshToken);
 
 public record UpdateProfileRequest(
     string? FirstName, string? LastName,
-    string? Phone, string? LifeTrackStory);
+    string? Phone, string? LifeTrackStory,
+    string? Country, string? State, string? City);
 
 public record UpdateLocationRequest(
     string? GooglePlaceId, double? Lat, double? Lng,
@@ -740,7 +1010,12 @@ public record UpdateLocationRequest(
 
 public record CreateProductRequest(
     string Name, string? Description, string? Category, string? Type,
-    decimal? CurrentPrice, int? StockQty);
+    decimal? CurrentPrice, int? StockQty, List<ProductMediaInput>? Media);
+
+public record ProductMediaInput(
+    string Url,
+    [property: JsonPropertyName("media_type")] string? MediaType,
+    [property: JsonPropertyName("display_order")] int? DisplayOrder);
 
 public record UpdateProductRequest(
     string? Name, string? Description, string? Category, string? Type,
@@ -766,6 +1041,11 @@ public record CreateOrderRequest(
 
 public record AddCartItemRequest(Guid ProductId, int Quantity);
 
+public record WalletAmountRequest(decimal Amount);
+
+public record WishlistRequest(
+    [property: JsonPropertyName("product_id")] Guid ProductId);
+
 public record AuthResponse(
     UserIdentityResponse User,
     [property: JsonPropertyName("access_token")]  string AccessToken,
@@ -784,4 +1064,9 @@ public record UserIdentityResponse(
     [property: JsonPropertyName("is_seller")]  bool IsSeller,
     string[] Roles,
     [property: JsonPropertyName("created_at")] DateTime? CreatedAt,
-    [property: JsonPropertyName("updated_at")] DateTime? UpdatedAt);
+    [property: JsonPropertyName("updated_at")] DateTime? UpdatedAt,
+    // Location fields — null means the user hasn't completed onboarding yet.
+    // The frontend uses country == null to detect incomplete Google signups.
+    string? Country,
+    string? State,
+    string? City);

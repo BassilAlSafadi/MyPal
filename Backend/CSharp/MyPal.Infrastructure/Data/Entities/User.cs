@@ -70,6 +70,9 @@ public class User
     [Column("state")]
     public string? State { get; set; }
 
+    [Column("country")]
+    public string? Country { get; set; }
+
     [Column("life_track_story")]
     public string? LifeTrackStory { get; set; }
 

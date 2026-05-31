@@ -1,10 +1,14 @@
+import { useEffect } from 'react';
 import { useWishlistStore } from '@/stores/wishlistStore';
 import { Heart, TrendingDown, ExternalLink, Trash2 } from 'lucide-react';
 import BottomNav from '@/components/BottomNav';
 import AIChatBubble from '@/components/AIChatBubble';
+import ProductImage from '@/components/ProductImage';
 
 const WishlistScreen = () => {
-  const { items, removeItem } = useWishlistStore();
+  const { items, removeItem, load } = useWishlistStore();
+
+  useEffect(() => { load(); }, [load]);
 
   return (
     <div className="min-h-screen bg-background pb-24">
@@ -24,7 +28,7 @@ const WishlistScreen = () => {
         <div className="px-4 space-y-3">
           {items.map((item) => (
             <div key={item.id} className="glass-card p-3 flex gap-3">
-              <img src={item.image} alt={item.title} className="w-20 h-20 rounded-lg object-cover flex-shrink-0" />
+              <ProductImage src={item.image} alt={item.title} width={160} height={160} className="w-20 h-20 rounded-lg object-cover flex-shrink-0" />
               <div className="flex-1 min-w-0 space-y-1">
                 <p className="text-sm font-medium text-foreground line-clamp-1">{item.title}</p>
                 <div className="flex items-center gap-2">

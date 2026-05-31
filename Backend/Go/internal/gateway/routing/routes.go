@@ -100,6 +100,19 @@ func buildRoutes(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Poo
 		middleware.RequestSizeLimit(cfg.MaxBodyBytes),
 	)
 
+	// AI/LLM routes run multi-step agentic pipelines that are far slower than
+	// CRUD calls, so they get the orchestrator timeout budget instead of Default.
+	aiAuthenticated := middleware.Chain(
+		middleware.CorrelationID,
+		middleware.StructuredLogging,
+		middleware.PanicRecovery,
+		middleware.JWTValidation(cfg.Auth.JWTSecret),
+		middleware.RateLimiting,
+		middleware.Timeout(cfg.Timeout.NodeOrchestrator),
+		middleware.Observability,
+		middleware.RequestSizeLimit(cfg.MaxBodyBytes),
+	)
+
 	searchStack := middleware.Chain(
 		middleware.CorrelationID,
 		middleware.StructuredLogging,
@@ -170,13 +183,32 @@ func buildRoutes(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Poo
 
 	// ----------------------------------------------------------------
 	// Products & inventory → C# Main API  (authenticated)
+	// Bare path is registered too so GET /api/v1/products (the catalog list)
+	// is not 307-redirected to a trailing-slash path C# doesn't match.
 	// ----------------------------------------------------------------
+	mux.Handle("/api/v1/products", authenticated(csharpProxy.HandlerWithRewrite("/api/v1", "/api")))
 	mux.Handle("/api/v1/products/", authenticated(csharpProxy.HandlerWithRewrite("/api/v1", "/api")))
 
 	// ----------------------------------------------------------------
 	// Orders & checkout → C# Main API  (authenticated)
 	// ----------------------------------------------------------------
+	mux.Handle("/api/v1/orders", authenticated(csharpProxy.HandlerWithRewrite("/api/v1", "/api")))
 	mux.Handle("/api/v1/orders/", authenticated(csharpProxy.HandlerWithRewrite("/api/v1", "/api")))
+
+	// ----------------------------------------------------------------
+	// Wallet, wishlist & listings → C# Main API  (authenticated)
+	// Both the exact path (e.g. GET /api/v1/wallet) and the subtree
+	// (e.g. /api/v1/wallet/transactions) are registered so the bare path
+	// is not 301-redirected by the ServeMux.
+	// ----------------------------------------------------------------
+	csharpAuth := authenticated(csharpProxy.HandlerWithRewrite("/api/v1", "/api"))
+	mux.Handle("/api/v1/wallet", csharpAuth)
+	mux.Handle("/api/v1/wallet/", csharpAuth)
+	mux.Handle("/api/v1/wishlist", csharpAuth)
+	mux.Handle("/api/v1/wishlist/", csharpAuth)
+	mux.Handle("/api/v1/listings", csharpAuth)
+	mux.Handle("/api/v1/cart", csharpAuth)
+	mux.Handle("/api/v1/cart/", csharpAuth)
 
 	// ----------------------------------------------------------------
 	// Checkout saga orchestration and status polling
@@ -215,11 +247,11 @@ func buildRoutes(mux *http.ServeMux, cfg *gconfig.GatewayConfig, db *pgxpool.Poo
 	// AI & LLM Orchestration → Node Orchestrator  (authenticated)
 	// Generic catch-all proxy for all other /ai/* and /agent/* routes.
 	// ----------------------------------------------------------------
-	mux.Handle("/api/v1/ai/summaries/", authenticated(nodeProxy.HandlerWithRewrite("/api/v1/ai", "")))
-	mux.Handle("/api/v1/ai/", authenticated(nodeProxy.Handler("/api/v1")))
-	mux.Handle("/api/v1/agent/", authenticated(nodeProxy.Handler("/api/v1")))
-	mux.Handle("/api/v1/seller/", authenticated(nodeProxy.Handler("/api/v1")))
-	mux.Handle("/api/v1/seller-report/", authenticated(nodeProxy.Handler("/api/v1")))
+	mux.Handle("/api/v1/ai/summaries/", aiAuthenticated(nodeProxy.HandlerWithRewrite("/api/v1/ai", "")))
+	mux.Handle("/api/v1/ai/", aiAuthenticated(nodeProxy.Handler("/api/v1")))
+	mux.Handle("/api/v1/agent/", aiAuthenticated(nodeProxy.Handler("/api/v1")))
+	mux.Handle("/api/v1/seller/", aiAuthenticated(nodeProxy.Handler("/api/v1")))
+	mux.Handle("/api/v1/seller-report/", aiAuthenticated(nodeProxy.Handler("/api/v1")))
 
 	// ----------------------------------------------------------------
 	// Support / realtime → Go Support  (authenticated)

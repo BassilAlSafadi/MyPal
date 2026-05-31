@@ -21,6 +21,8 @@ const (
 	lifeTrackAuditCollection = "life_track_audit"
 	// Redis key prefix for hot narrative cache (Upstash).
 	redisHotNarrativeKeyPrefix = "narrative:life_track:hot:"
+	// Hot narrative state is a cache and must expire five hours after it is written.
+	redisHotNarrativeTTL = 5 * time.Hour
 )
 
 // LifeTrackSyncDeps holds the three polyglot stores used by CommitNarrativeLifeTrack.
@@ -77,7 +79,7 @@ func CommitNarrativeLifeTrack(ctx context.Context, deps *LifeTrackSyncDeps, in *
 	}
 
 	// 1) Hot path — Redis
-	if err := deps.Redis.Set(ctx, hotKey, in.HotStateJSON, 0).Err(); err != nil {
+	if err := deps.Redis.Set(ctx, hotKey, in.HotStateJSON, redisHotNarrativeTTL).Err(); err != nil {
 		return fmt.Errorf("CommitNarrativeLifeTrack: redis set: %w", err)
 	}
 	redisWritten = true

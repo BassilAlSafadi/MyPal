@@ -2,7 +2,7 @@
 // New code should import from src/agents/* directly.
 const { MODEL_CONFIG, createLLMProvider } = require('./src/providers/llmProvider');
 const { safeParseJSON, stripReasoningAndFences } = require('./src/utils/helpers');
-const { MAX_ITERATIONS, createInitialState, runMyPalAgenticWorkflow } = require('./src/agents/agenticSearch');
+const { MAX_ITERATIONS, createInitialState, runReliableDeepSearch, runMyPalAgenticWorkflow } = require('./src/agents/agenticSearch');
 const { fastSearchFeature } = require('./src/agents/fastSearch');
 const { translateText } = require('./src/agents/translator');
 const { summarizeContent } = require('./src/agents/summarizer');
@@ -16,6 +16,7 @@ module.exports = {
   MODEL_CONFIG,
   createLLMProvider,
   createInitialState,
+  runReliableDeepSearch,
   runMyPalAgenticWorkflow,
   fastSearchFeature,
   translateText,

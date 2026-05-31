@@ -1,28 +1,51 @@
 import { useState } from 'react';
-import { Heart, Camera, Truck, Globe, Database, ExternalLink } from 'lucide-react';
+import { Heart, Truck, Globe, Database, ExternalLink } from 'lucide-react';
 import { useMockStore } from '@/lib/useMockStore';
+import { useWishlistStore } from '@/stores/wishlistStore';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import { SearchResult } from '@/stores/searchStore';
-
+import ProductImage from '@/components/ProductImage';
+import { LinkThumb } from '@/components/LinkThumb';
 interface ProductCardProps {
-  product: Partial<SearchResult> & { seller?: { name: string; isMyPal: boolean; trustScore?: number; trustTier?: "new" | "rising" | "trusted" | "top" | "elite" } };
+  product: {
+    id: string;
+    title?: string;
+    price?: number;
+    image?: string;
+    rating?: number;
+    source?: 'external' | 'marketplace';
+    seller?: string | { name?: string; isMyPal?: boolean };
+    url?: string | null;
+    source_url?: string | null;
+  };
   onClick?: () => void;
 }
 
 export const ProductCard = ({ product, onClick }: ProductCardProps) => {
-  const { wishlist, addToWishlist, removeFromWishlist, addToRecentViews } = useMockStore();
+  const { addToRecentViews } = useMockStore();
+  const { isWishlisted: checkWishlisted, addItem, removeItem } = useWishlistStore();
   const [imageLoading, setImageLoading] = useState(true);
-  
-  const isWishlisted = wishlist.includes(product.id);
+
+  const isWishlisted = checkWishlisted(product.id);
   const isInternal = product.source === 'marketplace';
-  
+  const sellerName = typeof product.seller === 'string' ? product.seller : product.seller?.name;
+  const title = product.title ?? 'Product image';
+  const linkUrl = product.url ?? product.source_url ?? null;
+  // A web finding with no photo: show the link's favicon/domain instead of an empty box.
+  const showLinkThumb = !product.image && !isInternal && !!linkUrl;
+
   const handleWishlistToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isWishlisted) {
-      removeFromWishlist(product.id);
+      removeItem(product.id);
     } else {
-      addToWishlist(product.id);
+      addItem({
+        id: product.id,
+        title: product.title ?? '',
+        price: product.price ?? 0,
+        image: product.image ?? '',
+        source: product.source ?? 'marketplace',
+      });
     }
   };
 
@@ -38,19 +61,28 @@ export const ProductCard = ({ product, onClick }: ProductCardProps) => {
     >
       {/* Image Container */}
       <div className="relative aspect-square bg-secondary">
-        {imageLoading && (
-          <Skeleton className="absolute inset-0" />
+        {showLinkThumb ? (
+          <LinkThumb url={linkUrl!} label={sellerName} />
+        ) : (
+          <>
+            {imageLoading && (
+              <Skeleton className="absolute inset-0" />
+            )}
+
+            <ProductImage
+              src={product.image}
+              alt={title}
+              width={600}
+              height={600}
+              className={cn(
+                "w-full h-full object-cover transition-opacity duration-500 group-hover:scale-110",
+                imageLoading ? "opacity-0" : "opacity-100"
+              )}
+              onLoad={() => setImageLoading(false)}
+              onError={() => setImageLoading(false)}
+            />
+          </>
         )}
-        
-        <img
-          src={product.image}
-          alt={product.title}
-          className={cn(
-            "w-full h-full object-cover transition-opacity duration-500 group-hover:scale-110",
-            imageLoading ? "opacity-0" : "opacity-100"
-          )}
-          onLoad={() => setImageLoading(false)}
-        />
         
         {/* Wishlist Button */}
         <button
@@ -83,10 +115,10 @@ export const ProductCard = ({ product, onClick }: ProductCardProps) => {
       <div className="p-4 space-y-3">
         <div className="space-y-1">
           <h3 className="text-sm font-bold text-foreground line-clamp-2 leading-snug group-hover:text-cobalt transition-colors">
-            {product.title}
+            {title}
           </h3>
           <div className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-            {product.seller?.name}
+            {sellerName}
             {!isInternal && <ExternalLink className="w-2.5 h-2.5" />}
           </div>
         </div>
@@ -94,7 +126,7 @@ export const ProductCard = ({ product, onClick }: ProductCardProps) => {
         <div className="flex items-end justify-between">
           <div className="space-y-1">
             <span className="text-lg font-black text-foreground">
-              ${product.price.toLocaleString()}
+              ${(product.price ?? 0).toLocaleString()}
             </span>
             <div className="flex items-center gap-1">
               <div className="flex">
@@ -103,7 +135,7 @@ export const ProductCard = ({ product, onClick }: ProductCardProps) => {
                     key={star}
                     className={cn(
                       "w-2.5 h-2.5",
-                      star <= Math.floor(product.rating) 
+                      star <= Math.floor(product.rating ?? 0)
                         ? "text-amber-400 fill-amber-400" 
                         : "text-slate-200 fill-slate-200"
                     )}

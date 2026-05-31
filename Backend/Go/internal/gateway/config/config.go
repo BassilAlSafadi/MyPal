@@ -69,7 +69,7 @@ func Load() (*GatewayConfig, error) {
 		Timeout: GatewayTimeouts{
 			CSharpAPI:        getEnvDuration("TIMEOUT_CSHARP_MS", 5000),
 			GoSupport:        getEnvDuration("TIMEOUT_GO_SUPPORT_MS", 5000),
-			NodeOrchestrator: getEnvDuration("TIMEOUT_NODE_ORCH_MS", 15000),
+			NodeOrchestrator: getEnvDuration("TIMEOUT_NODE_ORCH_MS", 90000),
 			ProdBERT:         getEnvDuration("TIMEOUT_PRODBERT_MS", 3000),
 			Default:          getEnvDuration("TIMEOUT_DEFAULT_MS", 10000),
 		},

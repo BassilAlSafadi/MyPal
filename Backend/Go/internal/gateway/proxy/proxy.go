@@ -71,7 +71,12 @@ func (d *Director) HandlerWithRewrite(prefixToStrip string, upstreamPrefix strin
 		tracing.InjectHeaders(req, traceID, d.InternalToken)
 
 		// Forward.
-		client := &http.Client{Timeout: d.Timeout}
+		client := &http.Client{
+			Timeout: d.Timeout,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
 		resp, err := client.Do(req)
 		if err != nil {
 			if ctx.Err() == context.DeadlineExceeded {
@@ -142,6 +147,7 @@ func copyHeaders(dst, src *http.Request) {
 		"content-length":  true,
 		"accept-encoding": true,
 		"user-agent":      true,
+		"cookie":          true,
 		// Trusted identity headers set by JWTValidation after the token is verified.
 		// Inbound client-supplied X-User-* are stripped upstream (stripIdentityHeaders),
 		// so only gateway-validated values reach here. Upstreams (e.g. C# ResolveUserAsync)

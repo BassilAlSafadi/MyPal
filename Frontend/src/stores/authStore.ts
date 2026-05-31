@@ -3,16 +3,25 @@ import { persist } from 'zustand/middleware';
 import { UserIdentity } from '../../../shared/contracts/auth/identity';
 import { authService } from '@/services/authService';
 
+export interface PersonaProfile {
+  interests: string[];
+  categoryAffinity: Record<string, number>;
+  aiContextPreferences: string[];
+}
+
 interface AuthState {
   user: UserIdentity | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
+  personaProfile: PersonaProfile | null;
+  needsOnboarding: boolean;
 
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: () => void;
   logout: () => Promise<void>;
   setUser: (user: UserIdentity | null) => void;
+  completeOnboarding: (profile: PersonaProfile) => void;
   clearError: () => void;
 }
 
@@ -23,8 +32,11 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       isLoading: false,
       error: null,
+      personaProfile: null,
+      needsOnboarding: false,
 
       setUser: (user) => set({ user, isAuthenticated: !!user }),
+      completeOnboarding: (profile) => set({ personaProfile: profile, needsOnboarding: false }),
 
       login: async (email, password) => {
         set({ isLoading: true, error: null });
@@ -54,7 +66,12 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'mypal-auth',
-      partialize: (state) => ({ user: state.user, isAuthenticated: state.isAuthenticated }),
+      partialize: (state) => ({
+        user: state.user,
+        isAuthenticated: state.isAuthenticated,
+        personaProfile: state.personaProfile,
+        needsOnboarding: state.needsOnboarding,
+      }),
     }
   )
 );

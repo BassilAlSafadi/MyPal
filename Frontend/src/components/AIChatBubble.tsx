@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { MessageCircle, X, Send, Sparkles } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { Markdown } from '@/components/Markdown';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -57,12 +58,14 @@ const AIChatBubble = () => {
           <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-[200px]">
             {messages.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-xs leading-relaxed ${
+                <div className={`max-w-[80%] px-3 py-2 rounded-2xl ${
                   msg.role === 'user'
-                    ? 'bg-gradient-cobalt text-primary-foreground rounded-br-md'
-                    : 'bg-secondary text-foreground rounded-bl-md'
+                    ? 'bg-gradient-cobalt text-primary-foreground rounded-br-md text-xs leading-relaxed'
+                    : 'bg-secondary rounded-bl-md'
                 }`}>
-                  {msg.content}
+                  {msg.role === 'user'
+                    ? msg.content
+                    : <Markdown content={msg.content} size="sm" />}
                 </div>
               </div>
             ))}

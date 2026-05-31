@@ -909,6 +909,36 @@ namespace MyPal.Infrastructure.Data.Migrations
                     b.ToTable("vendors", "public");
                 });
 
+            modelBuilder.Entity("MyPal.Infrastructure.Data.Entities.WishlistItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("UserId", "ProductId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_wishlist_items_user_product");
+
+                    b.ToTable("wishlist_items", "public");
+                });
+
             modelBuilder.Entity("MyPal.Infrastructure.Data.Entities.Cart", b =>
                 {
                     b.HasOne("MyPal.Infrastructure.Data.Entities.User", "User")
@@ -1113,6 +1143,25 @@ namespace MyPal.Infrastructure.Data.Migrations
                     b.HasOne("MyPal.Infrastructure.Data.Entities.User", "User")
                         .WithMany("Vendors")
                         .HasForeignKey("UserId");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("MyPal.Infrastructure.Data.Entities.WishlistItem", b =>
+                {
+                    b.HasOne("MyPal.Infrastructure.Data.Entities.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("MyPal.Infrastructure.Data.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
 
                     b.Navigation("User");
                 });

@@ -12,6 +12,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const defaultRedisCacheTTL = 5 * time.Hour
+
 func RedisUtil(args []string) error {
 	// 1) Load env
 	_ = godotenv.Load("../../.env")
@@ -44,7 +46,7 @@ func RedisUtil(args []string) error {
 		}
 		val := args[2]
 
-		var expiration time.Duration
+		expiration := defaultRedisCacheTTL
 		// Handle EX <seconds>
 		for i := 3; i < len(args); i++ {
 			if strings.ToUpper(args[i]) == "EX" && i+1 < len(args) {
@@ -73,15 +75,21 @@ func RedisUtil(args []string) error {
 			fields[args[i]] = args[i+1]
 		}
 
-		if err := rdb.HSet(ctx, key, fields).Err(); err != nil {
+		pipe := rdb.TxPipeline()
+		pipe.HSet(ctx, key, fields)
+		pipe.Expire(ctx, key, defaultRedisCacheTTL)
+		if _, err := pipe.Exec(ctx); err != nil {
 			return err
 		}
-		fmt.Printf("OK: HSET %s updated\n", key)
+		fmt.Printf("OK: HSET %s updated (Expiry: %v)\n", key, defaultRedisCacheTTL)
 		return nil
 
 	case "GET":
 		val, err := rdb.Get(ctx, key).Result()
 		if err == nil {
+			if err := rdb.Expire(ctx, key, defaultRedisCacheTTL).Err(); err != nil {
+				return err
+			}
 			fmt.Println(val)
 			return nil
 		}

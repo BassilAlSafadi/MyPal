@@ -3,9 +3,18 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Mail, Lock, ArrowRight, ShieldCheck, User } from 'lucide-react';
+import { Mail, Lock, ArrowRight, ShieldCheck, User, Globe, MapPin, Building2 } from 'lucide-react';
 import LogoIcon from '@/components/LogoIcon';
 import { authService } from '@/services/authService';
+
+// Common markets first, then alphabetical — enough for an enterprise-style signup.
+const COUNTRIES = [
+  'United States', 'United Kingdom', 'Canada', 'Australia', 'United Arab Emirates',
+  'Saudi Arabia', 'Germany', 'France', 'Spain', 'Italy', 'Netherlands', 'Sweden',
+  'India', 'Pakistan', 'Bangladesh', 'Egypt', 'Jordan', 'Lebanon', 'Qatar', 'Kuwait',
+  'Bahrain', 'Oman', 'Turkey', 'Brazil', 'Mexico', 'Japan', 'South Korea', 'Singapore',
+  'Malaysia', 'Indonesia', 'Philippines', 'South Africa', 'Nigeria', 'Kenya', 'Other',
+];
 
 const GoogleIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24">
@@ -34,6 +43,9 @@ const SignupScreen = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [country, setCountry] = useState('');
+  const [stateProvince, setStateProvince] = useState('');
+  const [city, setCity] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -43,7 +55,11 @@ const SignupScreen = () => {
     hasSpecial: /[^A-Za-z0-9]/.test(password),
   }), [password]);
 
-  const canSubmit = name.length > 1 && email.includes('@') && passwordChecks.minLength && passwordChecks.hasNumber && passwordChecks.hasSpecial;
+  const canSubmit =
+    name.length > 1 &&
+    email.includes('@') &&
+    passwordChecks.minLength && passwordChecks.hasNumber && passwordChecks.hasSpecial &&
+    country.length > 0 && stateProvince.trim().length > 0 && city.trim().length > 0;
 
   const handleGoogleSignup = () => {
     authService.loginWithGoogle();
@@ -54,8 +70,12 @@ const SignupScreen = () => {
     setLoading(true);
     setError('');
     try {
-      const user = await authService.signUpWithEmail(email, password, name.trim());
-      setUser(user); 
+      const user = await authService.signUpWithEmail(email, password, name.trim(), {
+        country,
+        state: stateProvince.trim(),
+        city: city.trim(),
+      });
+      setUser(user);
       navigate('/home');
     } catch (err: any) {
       setError(err?.message || 'Failed to create account');
@@ -145,6 +165,65 @@ const SignupScreen = () => {
                   onKeyDown={(e) => e.key === 'Enter' && handleSignup()}
                   className="bg-transparent border-none p-0 h-auto text-sm focus-visible:ring-0"
                 />
+              </div>
+            </div>
+
+            <div className="h-[1px] bg-border/50" />
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                Country
+              </label>
+              <div className="flex items-center gap-3 px-1">
+                <Globe className="w-4 h-4 text-cobalt-light" />
+                <select
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                  className="flex-1 bg-transparent border-none p-0 h-auto text-sm text-foreground focus:outline-none focus:ring-0"
+                >
+                  <option value="" disabled className="bg-background text-muted-foreground">
+                    Select your country
+                  </option>
+                  {COUNTRIES.map((c) => (
+                    <option key={c} value={c} className="bg-background text-foreground">
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="h-[1px] bg-border/50" />
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                  State / Province
+                </label>
+                <div className="flex items-center gap-2 px-1">
+                  <MapPin className="w-4 h-4 text-cobalt-light flex-shrink-0" />
+                  <Input
+                    placeholder="e.g. California"
+                    value={stateProvince}
+                    onChange={(e) => setStateProvince(e.target.value)}
+                    className="bg-transparent border-none p-0 h-auto text-sm focus-visible:ring-0"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                  City
+                </label>
+                <div className="flex items-center gap-2 px-1">
+                  <Building2 className="w-4 h-4 text-cobalt-light flex-shrink-0" />
+                  <Input
+                    placeholder="e.g. San Jose"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSignup()}
+                    className="bg-transparent border-none p-0 h-auto text-sm focus-visible:ring-0"
+                  />
+                </div>
               </div>
             </div>
           </div>

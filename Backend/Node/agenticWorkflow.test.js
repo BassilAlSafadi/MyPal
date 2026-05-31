@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   MAX_ITERATIONS,
+  createLLMProvider,
+  runReliableDeepSearch,
   runMyPalAgenticWorkflow,
   safeParseJSON,
   cleanScrapedContent,
@@ -119,4 +121,102 @@ test('scraped cleaner returns structured JSON through the notebook extraction pr
   const result = await cleanScrapedContent('Sale! Best Protein 2kg - 2500 EGP.', provider);
   assert.equal(result.title, 'Cleaned');
   assert.equal(result.currency, 'EGP');
+});
+
+test('default provider degrades external search and security failures', async () => {
+  const provider = createLLMProvider(
+    { HUGGING_FACE_API_KEY: 'test-hf-key', TAVILY_API_KEY: 'test-tavily-key' },
+    {
+      async post() {
+        throw new TypeError('fetch failed');
+      },
+    },
+  );
+
+  const security = await provider.classifySecurity('Find a smartphone under $1500');
+  assert.equal(security[0].label, 'SAFE');
+
+  const results = await provider.tavilySearch('Find a smartphone under $1500');
+  assert.equal(results[0].title, 'Search unavailable');
+  assert.match(results[0].content, /temporarily unavailable/);
+});
+
+test('workflow replaces unavailable final renderer text with MyPal product fallback', async () => {
+  const provider = createFakeProvider();
+  const originalChat = provider.chat.bind(provider);
+
+  provider.chat = async (modelKey, messages, callOptions = {}) => {
+    if (modelKey === 'gemini') {
+      return 'I need live model/search configuration to produce a verified MyPal answer.';
+    }
+    return originalChat(modelKey, messages, callOptions);
+  };
+  provider.chatWithFallback = async function chatWithFallback(modelKey, messages, callOptions = {}) {
+    return this.chat(modelKey, messages, callOptions);
+  };
+
+  const result = await runMyPalAgenticWorkflow({
+    query: 'Find a smartphone under $1500',
+    internal_products: [{ id: 'p1', title: 'MyPal Smartphone Pro', category: 'Electronics' }],
+  }, provider);
+
+  assert.match(result.state.final_output, /MyPal Smartphone Pro/);
+  assert.doesNotMatch(result.state.final_output, /live model\/search configuration/);
+});
+
+test('workflow sends Tavily a clean search query instead of markdown strategy text', async () => {
+  const provider = createFakeProvider();
+  const originalChat = provider.chat.bind(provider);
+
+  provider.chat = async (modelKey, messages, callOptions = {}) => {
+    if (modelKey === 'scout' && callOptions.responseFormat !== 'json') {
+      return 'Here are 3 search queries:\n\n1. **"best smartphones under $1500"**\n2. **"top rated phones within 1500 dollar budget"**';
+    }
+    return originalChat(modelKey, messages, callOptions);
+  };
+  provider.chatWithFallback = async function chatWithFallback(modelKey, messages, callOptions = {}) {
+    return this.chat(modelKey, messages, callOptions);
+  };
+
+  await runMyPalAgenticWorkflow({ query: 'Find a smartphone under $1500' }, provider);
+
+  const tavilyCall = provider.calls.find((call) => call[0] === 'tavily');
+  assert.equal(tavilyCall[1], 'best smartphones under $1500');
+});
+
+test('workflow strips fabricated MyPal product links from final answer', async () => {
+  const provider = createFakeProvider();
+  const originalChat = provider.chat.bind(provider);
+
+  provider.chat = async (modelKey, messages, callOptions = {}) => {
+    if (modelKey === 'gemini') {
+      return '[View on MyPal](https://mypal.com/product/p1)';
+    }
+    return originalChat(modelKey, messages, callOptions);
+  };
+  provider.chatWithFallback = async function chatWithFallback(modelKey, messages, callOptions = {}) {
+    return this.chat(modelKey, messages, callOptions);
+  };
+
+  const result = await runMyPalAgenticWorkflow({
+    query: 'Find a smartphone under $1500',
+    internal_products: [{ id: 'p1', title: 'MyPal Smartphone Pro', category: 'Electronics' }],
+  }, provider);
+
+  assert.match(result.state.final_output, /Open the MyPal product card below/);
+  assert.doesNotMatch(result.state.final_output, /mypal\.com\/product/);
+});
+
+test('reliable deep search returns live web products without slow model calls', async () => {
+  const provider = createFakeProvider();
+  const result = await runReliableDeepSearch({
+    query: 'I need to buy a smartphone with a 1000 dollar budget',
+    internal_products: [{ id: 'p1', title: 'MyPal Smartphone Pro', category: 'Electronics' }],
+  }, provider);
+
+  assert.equal(result.state.search_query, 'I need to buy a smartphone with a 1000 dollar budget');
+  assert.equal(result.state.product_json.products[0].source_url, 'https://realvendor.test/product-a');
+  assert.match(result.state.final_output, /MyPal Smartphone Pro/);
+  assert.match(result.state.final_output, /realvendor\.test/);
+  assert.equal(provider.calls.some((call) => call[0] === 'gemini'), false);
 });

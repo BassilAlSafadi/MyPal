@@ -1,211 +1,291 @@
-import { useState, useRef, useEffect } from 'react';
-import { Send, Sparkles, RotateCcw, Zap, ShoppingBag, ExternalLink, Globe, Check } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  Send, Sparkles, RotateCcw, Zap, ShoppingBag, ExternalLink, Globe,
+  Check, Languages, FileText, MessageSquare, Star, BarChart3, Loader2,
+  Plus, Trash2, ChevronDown,
+} from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import BottomNav from '@/components/BottomNav';
 import { cn } from '@/lib/utils';
 import { searchService, SearchModel, ExternalProduct } from '@/services/searchService';
+import { productService } from '@/services/productService';
+import { useAsync } from '@/hooks/useAsync';
+import { ProductPreviewDrawer, ProductPreview } from '@/components/ProductPreviewDrawer';
+import ProductImage from '@/components/ProductImage';
+import { LinkThumb } from '@/components/LinkThumb';
+import { Markdown } from '@/components/Markdown';
+import { PRODUCT_IMAGE_FALLBACK } from '@/lib/productImage';
 
-// ── Thinking thoughts (never expose infrastructure or model names) ────────────
+// ── Notebook thinking thoughts (matches notebook's print statements) ──────────
 
 const FAST_THOUGHTS = [
-  'Understanding what you\'re looking for...',
-  'Checking what\'s available in store...',
+  'Running fast search via Tavily...',
+  'Checking MyPal catalog for matches...',
   'Reviewing prices and options...',
-  'Finding the best match for you...',
-  'Almost ready...',
+  'Composing answer with GPT model...',
 ];
 
 const PRO_THOUGHTS = [
-  'Thinking carefully about your request...',
-  'Exploring your preferences and budget...',
-  'Searching across multiple sources...',
-  'Comparing prices and specifications...',
-  'Checking availability and reliability...',
-  'Verifying the most relevant options...',
-  'Reviewing everything one more time...',
-  'Putting together your personalised report...',
+  '🛡️ Security Guard — screening request...',
+  '🦙 Llama Maverick — orchestrating intent...',
+  '🔍 Scout Unified Intake — extracting product specs...',
+  '🔵 Cohere — grounding facts and context...',
+  '🟢 GPT-OSS — converting facts to structured JSON...',
+  '🔭 Scout Lead Search — generating search queries...',
+  '🌐 Tavily + SerpAPI — executing web search...',
+  '✅ GPT-OSS — extracting products + calculating costs...',
+  '☰ Auditor — verifying accuracy and URLs...',
+  '🦙 Llama Mediator — deciding next step...',
+  '🔵 Cohere — synthesizing final facts...',
+  'Φ Phi-4 — formatting output JSON...',
+  '✨ GPT-4.1 — composing final report...',
 ];
-
-// ── Pro quota ─────────────────────────────────────────────────────────────────
-
-const PRO_QUOTA = 3;
-
-function getProUsage(): { date: string; count: number } {
-  const today = new Date().toISOString().split('T')[0];
-  try {
-    const stored = JSON.parse(localStorage.getItem('mypal_pro_quota') ?? '{}') as {
-      date?: string;
-      count?: number;
-    };
-    if (stored.date === today) return { date: today, count: stored.count ?? 0 };
-  } catch {}
-  return { date: today, count: 0 };
-}
-
-function consumeProQuota(): number {
-  const usage = getProUsage();
-  const next = { date: usage.date, count: usage.count + 1 };
-  localStorage.setItem('mypal_pro_quota', JSON.stringify(next));
-  return next.count;
-}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface MyPalProduct {
-  id: string;
-  title: string;
-  category?: string;
-  score?: number;
-}
+const PRO_LIVE_THOUGHTS = [
+  'Checking MyPal catalog matches...',
+  'Running Pro live web search...',
+  'Filtering source links...',
+  'Preparing clickable product cards...',
+];
+
+type AIFeature = 'search' | 'translate' | 'summarize' | 'ask-product' | 'recommend' | 'sellers';
 
 interface Message {
   id: string;
   type: 'user' | 'ai';
   content: string;
   model?: SearchModel;
-  mypalProducts?: MyPalProduct[];
+  mypalProducts?: { id: string; title: string; category?: string; score?: number }[];
   products?: ExternalProduct[];
   suggestions?: string[];
   timestamp: Date;
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+interface Quota { used: number; limit: number; remaining: number; resets_at: string }
+
+// ── Feature tab definitions ───────────────────────────────────────────────────
+
+const TABS: { id: AIFeature; label: string; icon: React.ReactNode; short: string }[] = [
+  { id: 'search',      label: 'AI Search',          icon: <Sparkles className="w-4 h-4" />,    short: 'Search' },
+  { id: 'translate',   label: 'Translate',           icon: <Languages className="w-4 h-4" />,   short: 'Translate' },
+  { id: 'summarize',   label: 'Summarize',           icon: <FileText className="w-4 h-4" />,    short: 'Summarize' },
+  { id: 'ask-product', label: 'Ask Product',         icon: <MessageSquare className="w-4 h-4" />, short: 'Ask AI' },
+  { id: 'recommend',   label: 'Recommendations',     icon: <Star className="w-4 h-4" />,        short: 'Recommend' },
+  { id: 'sellers',     label: 'Seller Analytics',    icon: <BarChart3 className="w-4 h-4" />,   short: 'Sellers' },
+];
+
+const LANGUAGES = [
+  'Arabic', 'French', 'German', 'Spanish', 'Italian', 'Japanese',
+  'Korean', 'Portuguese', 'Russian', 'Turkish', 'Chinese (Simplified)',
+  'Hindi', 'Dutch', 'Polish', 'Swedish',
+];
+
+// ── Main Component ─────────────────────────────────────────────────────────────
 
 const AISearchScreen = () => {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const [model, setModel] = useState<SearchModel>('fast');
-  const [proUsageCount, setProUsageCount] = useState(() => getProUsage().count);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [visibleThoughts, setVisibleThoughts] = useState<string[]>([]);
-  const thoughtIdxRef = useRef(0);
-  const thoughtTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [activeTab, setActiveTab] = useState<AIFeature>('search');
 
-  const proRemaining = Math.max(0, PRO_QUOTA - proUsageCount);
-  const proQuotaFull = proUsageCount >= PRO_QUOTA;
+  return (
+    <div className="min-h-screen bg-background flex flex-col pb-24">
+      {/* Header */}
+      <div className="px-4 pt-6 pb-3 border-b border-border">
+        <div className="flex items-center gap-2 mb-3">
+          <Sparkles className="w-5 h-5 text-cobalt-light" />
+          <h1 className="text-lg font-serif font-bold text-foreground">AI Hub</h1>
+        </div>
+        {/* Tab bar */}
+        <div className="flex gap-1 overflow-x-auto scrollbar-hide -mx-4 px-4">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all border',
+                activeTab === tab.id
+                  ? 'bg-cobalt-light text-white border-cobalt-light shadow-sm'
+                  : 'bg-transparent text-muted-foreground border-border hover:text-foreground hover:border-foreground/30',
+              )}
+            >
+              {tab.icon}
+              {tab.short}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Feature panels */}
+      <div className="flex-1 overflow-hidden">
+        {activeTab === 'search'      && <SearchPanel />}
+        {activeTab === 'translate'   && <TranslatePanel />}
+        {activeTab === 'summarize'   && <SummarizePanel />}
+        {activeTab === 'ask-product' && <AskProductPanel />}
+        {activeTab === 'recommend'   && <RecommendPanel />}
+        {activeTab === 'sellers'     && <SellerAnalyticsPanel />}
+      </div>
+
+      <BottomNav />
+    </div>
+  );
+};
+
+// ── Search Panel (Fast + Pro / Deep) ──────────────────────────────────────────
+
+const SearchPanel = () => {
+  const [messages, setMessages]           = useState<Message[]>([]);
+  const [input, setInput]                 = useState('');
+  const [isTyping, setIsTyping]           = useState(false);
+  const [model, setModel]                 = useState<SearchModel>('fast');
+  const selectedModelRef                  = useRef<SearchModel>('fast');
+  const [selectedProduct, setSelectedProduct] = useState<ProductPreview | null>(null);
+  const [visibleThoughts, setVisibleThoughts] = useState<string[]>([]);
+  const thoughtTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const messagesEndRef  = useRef<HTMLDivElement>(null);
+
+  // Server-side quota (refreshed on mount + after each deep search)
+  const { data: quotaData, refetch: refetchQuota } = useAsync<Quota>(
+    () => searchService.getDeepSearchQuota(),
+    [],
+  );
+  const quota: Quota = quotaData ?? { used: 0, limit: 3, remaining: 3, resets_at: '' };
+  const proQuotaFull = quota.remaining <= 0;
+
+  const selectModel = useCallback((nextModel: SearchModel) => {
+    if (nextModel === 'pro' && proQuotaFull) return;
+    selectedModelRef.current = nextModel;
+    setModel(nextModel);
+  }, [proQuotaFull]);
+
+  useEffect(() => {
+    selectedModelRef.current = model;
+  }, [model]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Drive the thinking stream while the AI is working
   useEffect(() => {
     if (thoughtTimerRef.current) clearInterval(thoughtTimerRef.current);
+    if (!isTyping) { setVisibleThoughts([]); return; }
 
-    if (!isTyping) {
-      setVisibleThoughts([]);
-      thoughtIdxRef.current = 0;
-      return;
-    }
-
-    const thoughts = model === 'pro' ? PRO_THOUGHTS : FAST_THOUGHTS;
-    thoughtIdxRef.current = 0;
+    const thoughts = model === 'pro' ? PRO_LIVE_THOUGHTS : FAST_THOUGHTS;
+    let idx = 0;
     setVisibleThoughts([thoughts[0]]);
-    thoughtIdxRef.current = 1;
+    idx = 1;
 
     thoughtTimerRef.current = setInterval(() => {
-      if (thoughtIdxRef.current < thoughts.length) {
-        const next = thoughts[thoughtIdxRef.current];
-        thoughtIdxRef.current += 1;
-        setVisibleThoughts((prev) => [...prev, next].slice(-4));
+      if (idx < thoughts.length) {
+        setVisibleThoughts((prev) => [...prev, thoughts[idx]].slice(-5));
+        idx += 1;
       }
-    }, model === 'pro' ? 2200 : 1500);
+    }, model === 'pro' ? 2000 : 1400);
 
-    return () => {
-      if (thoughtTimerRef.current) clearInterval(thoughtTimerRef.current);
-    };
+    return () => { if (thoughtTimerRef.current) clearInterval(thoughtTimerRef.current); };
   }, [isTyping, model]);
 
   const handleSend = async () => {
     const query = input.trim();
+    const requestModel = selectedModelRef.current;
     if (!query || isTyping) return;
-    if (model === 'pro' && proQuotaFull) return;
+    if (requestModel === 'pro' && proQuotaFull) return;
 
     const userMsg: Message = {
       id: `msg-${Date.now()}`,
       type: 'user',
       content: query,
-      model,
+      model: requestModel,
       timestamp: new Date(),
     };
-    setMessages((prev) => [...prev, userMsg]);
+    setMessages((p) => [...p, userMsg]);
     setInput('');
     setIsTyping(true);
 
     try {
-      // Step 1 — RAG: query the MyPal DB first
       const internalResults = await searchService.performInternalSearch(query);
+      const aiResult = await searchService.performAISearch(query, requestModel, internalResults);
 
-      // Step 2 — AI search with RAG context
-      const aiResult = await searchService.performAISearch(query, model, internalResults);
+      if (requestModel === 'pro') refetchQuota();
 
-      // Deduct Pro quota only on success
-      if (model === 'pro') {
-        setProUsageCount(consumeProQuota());
-      }
-
-      const mypalProducts: MyPalProduct[] = internalResults.slice(0, 5).map((r) => ({
-        id: r.id,
-        title: r.title,
-        category: r.category,
-        score: r.score,
+      const mypalProducts = internalResults.slice(0, 5).map((r) => ({
+        id: r.id, title: r.title, category: r.category, score: r.score,
       }));
 
-      const fallbackText =
-        internalResults.length > 0
-          ? `Found ${internalResults.length} matching product${internalResults.length === 1 ? '' : 's'} in MyPal for "${query}".`
-          : `No exact MyPal match for "${query}". Try Pro for a deeper web search.`;
+      const fallbackText = internalResults.length > 0
+        ? `Found ${internalResults.length} matching product${internalResults.length === 1 ? '' : 's'} in MyPal for "${query}".`
+        : `No exact MyPal match for "${query}". Try Pro for a deeper web search.`;
 
-      const aiMsg: Message = {
+      setMessages((p) => [...p, {
         id: `msg-ai-${Date.now()}`,
         type: 'ai',
         content: aiResult.text || fallbackText,
-        model,
+        model: requestModel,
         mypalProducts: mypalProducts.length > 0 ? mypalProducts : undefined,
         products: aiResult.products.length > 0 ? aiResult.products : undefined,
         suggestions: ['Tell me more about the first one', 'Show cheaper alternatives', 'Compare these options'],
         timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, aiMsg]);
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `msg-err-${Date.now()}`,
-          type: 'ai',
-          content: 'Search failed. Please try again in a moment.',
-          timestamp: new Date(),
-        },
-      ]);
+      }]);
+    } catch (error) {
+      console.error('[AI Search] Search failed:', error);
+      setMessages((p) => [...p, {
+        id: `msg-err-${Date.now()}`, type: 'ai',
+        content: 'Search failed. Please try again.',
+        model: requestModel,
+        timestamp: new Date(),
+      }]);
     } finally {
       setIsTyping(false);
     }
   };
 
-  const handleNewSearch = () => {
-    setMessages([]);
-    setInput('');
+  const openMyPalProduct = async (product: NonNullable<Message['mypalProducts']>[number]) => {
+    const preview: ProductPreview = {
+      id: product.id,
+      title: product.title,
+      price: 0,
+      image: PRODUCT_IMAGE_FALLBACK,
+      source: 'marketplace',
+      seller: 'MyPal Verified',
+      rating: product.score ?? 4.8,
+      category: product.category,
+      description: product.category
+        ? `A matching MyPal catalog listing in ${product.category}. Open it here to review details and add it to your cart.`
+        : 'A matching MyPal catalog listing. Open it here to review details and add it to your cart.',
+    };
+    setSelectedProduct(preview);
+
+    try {
+      const fullProduct = await productService.get(product.id);
+      setSelectedProduct({
+        ...fullProduct,
+        source: 'marketplace',
+        seller: fullProduct.seller ?? preview.seller,
+      });
+    } catch {
+      // Keep the immediate preview if the detail endpoint is unavailable.
+    }
+  };
+
+  const openExternalProduct = (product: ExternalProduct, index: number, messageId: string) => {
+    const price = Number(product.total_cost ?? product.price ?? 0);
+    setSelectedProduct({
+      id: `external-${messageId}-${index}`,
+      title: product.name ?? product.title ?? 'External product',
+      price: Number.isFinite(price) ? price : 0,
+      image: product.thumbnail ?? PRODUCT_IMAGE_FALLBACK,
+      source: 'external',
+      seller: product.source ?? 'External seller',
+      rating: 4.6,
+      url: product.source_url,
+      description: product.key_specs?.length
+        ? product.key_specs.join('\n')
+        : 'External web finding from the AI search. Open the seller page to verify the final price, stock, and shipping details.',
+    });
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col pb-24">
-      {/* Header */}
-      <div className="px-4 pt-6 pb-3 flex items-center justify-between border-b border-border">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-cobalt-light" />
-          <h1 className="text-lg font-serif font-bold text-foreground">AI Search</h1>
-        </div>
-        {messages.length > 0 && (
-          <button
-            onClick={handleNewSearch}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <RotateCcw className="w-4 h-4" /> New
-          </button>
-        )}
-      </div>
-
+    <div className="flex flex-col h-full">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.length === 0 ? (
@@ -213,238 +293,680 @@ const AISearchScreen = () => {
             <div className="w-16 h-16 rounded-full bg-cobalt-light/10 flex items-center justify-center mb-4">
               <Sparkles className="w-8 h-8 text-cobalt-light" />
             </div>
-            <h2 className="text-xl font-serif font-bold text-foreground mb-2">Ask me anything</h2>
+            <h2 className="text-xl font-serif font-bold mb-2">Ask me anything</h2>
             <p className="text-sm text-muted-foreground max-w-xs mb-6">
-              Describe what you&apos;re looking for and I&apos;ll search MyPal and the web for you.
+              Fast: quick answer. Pro Live: MyPal catalog plus live web results.
             </p>
             <div className="flex flex-wrap gap-2 justify-center max-w-sm">
-              {['Best laptop under $1000', 'Wireless earbuds for running', 'Gift ideas for gamers'].map(
-                (s) => (
-                  <button
-                    key={s}
-                    onClick={() => setInput(s)}
-                    className="text-xs px-3 py-1.5 glass-card text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {s}
-                  </button>
-                ),
-              )}
+              {['Best laptop under $1000', 'Wireless earbuds for running', 'Gift ideas for gamers'].map((s) => (
+                <button key={s} onClick={() => setInput(s)}
+                  className="text-xs px-3 py-1.5 glass-card text-muted-foreground hover:text-foreground transition-colors">
+                  {s}
+                </button>
+              ))}
             </div>
           </div>
         ) : (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={cn('flex', message.type === 'user' ? 'justify-end' : 'justify-start')}
-            >
-              {message.type === 'user' ? (
-                /* User bubble */
-                <div className="bg-gradient-cobalt text-primary-foreground px-4 py-2.5 rounded-2xl rounded-br-sm max-w-[80%]">
-                  <p className="text-sm">{message.content}</p>
-                  {message.model && (
-                    <div className="flex items-center gap-1 mt-1 opacity-60">
-                      {message.model === 'fast' ? (
-                        <Zap className="w-2.5 h-2.5" />
-                      ) : (
-                        <Sparkles className="w-2.5 h-2.5" />
-                      )}
-                      <span className="text-[10px] capitalize">{message.model}</span>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                /* AI bubble */
-                <div className="glass-card p-4 rounded-2xl rounded-bl-sm max-w-[92%] space-y-4">
-                  <p className="text-sm text-foreground leading-relaxed">{message.content}</p>
-
-                  {/* ── MyPal internal products (RAG) ─────────────── */}
-                  {message.mypalProducts && message.mypalProducts.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-2 h-2 rounded-full bg-cobalt-light" />
-                        <p className="text-xs font-semibold text-cobalt-light">Available on MyPal</p>
+          <>
+            {messages.map((msg) => (
+              <div key={msg.id} className={cn('flex', msg.type === 'user' ? 'justify-end' : 'justify-start')}>
+                {msg.type === 'user' ? (
+                  <div className="bg-gradient-cobalt text-primary-foreground px-4 py-2.5 rounded-2xl rounded-br-sm max-w-[80%]">
+                    <p className="text-sm">{msg.content}</p>
+                    {msg.model && (
+                      <div className="flex items-center gap-1 mt-1 opacity-60">
+                        {msg.model === 'fast' ? <Zap className="w-2.5 h-2.5" /> : <Sparkles className="w-2.5 h-2.5" />}
+                        <span className="text-[10px] capitalize">{msg.model}</span>
                       </div>
-                      <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-4 px-4">
-                        {message.mypalProducts.map((product) => (
-                          <div
-                            key={product.id}
-                            className="flex-shrink-0 w-36 bg-secondary rounded-xl overflow-hidden"
-                          >
-                            {/* Image placeholder */}
-                            <div className="relative aspect-square bg-cobalt-light/10 flex items-center justify-center">
-                              <ShoppingBag className="w-8 h-8 text-cobalt-light/50" />
-                              <div className="absolute top-1.5 left-1.5 flex items-center gap-1 bg-background/90 backdrop-blur-sm rounded-full px-1.5 py-0.5">
-                                <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                                <span className="text-[9px] text-green-600 font-semibold">In Store</span>
-                              </div>
-                            </div>
-                            {/* Info */}
-                            <div className="p-2">
-                              <p className="text-xs text-foreground line-clamp-2 leading-tight mb-1">
-                                {product.title}
-                              </p>
-                              {product.category && (
-                                <p className="text-[10px] text-muted-foreground">{product.category}</p>
-                              )}
-                            </div>
-                          </div>
-                        ))}
+                    )}
+                  </div>
+                ) : (
+                  <div className="glass-card p-4 rounded-2xl rounded-bl-sm max-w-[92%] space-y-4">
+                    {msg.model && (
+                      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-cobalt-light">
+                        {msg.model === 'pro' ? <Sparkles className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
+                        <span>{msg.model === 'pro' ? 'Pro live search' : 'Fast search'}</span>
                       </div>
-                    </div>
-                  )}
-
-                  {/* ── External AI-found products (Pro deep search) ── */}
-                  {message.products && message.products.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-1.5">
-                        <Globe className="w-3 h-3 text-muted-foreground" />
-                        <p className="text-xs font-medium text-muted-foreground">Web Findings</p>
-                      </div>
-                      <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-1 px-1">
-                        {message.products.slice(0, 6).map((product, i) => (
-                          <div key={i} className="flex-shrink-0 w-36 bg-secondary rounded-xl overflow-hidden">
-                            <div className="p-2.5">
-                              <p className="text-xs text-foreground line-clamp-2 leading-tight mb-1">
-                                {product.name ?? product.title}
-                              </p>
-                              <p className="text-sm font-bold text-foreground">
-                                {product.total_cost != null || product.price != null
-                                  ? `${product.currency ?? '$'}${product.total_cost ?? product.price}`
-                                  : '—'}
-                              </p>
-                              {product.source_url && (
-                                <a
-                                  href={product.source_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex items-center gap-1 mt-1.5 text-[10px] text-cobalt-light hover:underline"
-                                >
-                                  <ExternalLink className="w-2.5 h-2.5" /> View
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ── Follow-up suggestions ─────────────────────── */}
-                  {message.suggestions && message.suggestions.length > 0 && (
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {message.suggestions.map((s) => (
-                        <button
-                          key={s}
-                          onClick={() => setInput(s)}
-                          className="text-xs px-3 py-1.5 bg-cobalt-light/10 text-cobalt-light rounded-full hover:bg-cobalt-light/20 transition-colors"
-                        >
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))
-        )}
-
-        {/* Thinking stream */}
-        {isTyping && (
-          <div className="flex justify-start">
-            <div className="glass-card px-4 py-3 rounded-2xl rounded-bl-sm max-w-[85%] space-y-2">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-cobalt-light animate-pulse" />
-                <span className="text-xs font-semibold text-cobalt-light">Thinking</span>
-              </div>
-              <div className="space-y-1.5">
-                {visibleThoughts.map((thought, i) => {
-                  const isActive = i === visibleThoughts.length - 1;
-                  return (
-                    <div
-                      key={i}
-                      className={cn(
-                        'flex items-start gap-2 text-xs transition-all duration-500',
-                        isActive ? 'text-foreground' : 'text-muted-foreground opacity-60',
-                      )}
-                    >
-                      {isActive ? (
-                        <div className="mt-[3px] w-3 h-3 flex-shrink-0 flex items-center justify-center">
-                          <div className="w-1.5 h-1.5 rounded-full bg-cobalt-light animate-pulse" />
+                    )}
+                    <Markdown content={msg.content} />
+                    {msg.mypalProducts && msg.mypalProducts.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-2 h-2 rounded-full bg-cobalt-light" />
+                          <p className="text-xs font-semibold text-cobalt-light">Available on MyPal</p>
                         </div>
-                      ) : (
-                        <Check className="mt-[1px] w-3 h-3 flex-shrink-0 text-green-500" />
-                      )}
-                      <span>{thought}</span>
-                    </div>
-                  );
-                })}
+                        <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-4 px-4">
+                          {msg.mypalProducts.map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => openMyPalProduct(p)}
+                              className="flex-shrink-0 w-36 bg-secondary rounded-xl overflow-hidden text-left transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cobalt-light"
+                            >
+                              <div className="relative aspect-square bg-cobalt-light/10 flex items-center justify-center">
+                                <ShoppingBag className="w-8 h-8 text-cobalt-light/50" />
+                                <div className="absolute top-1.5 left-1.5 flex items-center gap-1 bg-background/90 backdrop-blur-sm rounded-full px-1.5 py-0.5">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                                  <span className="text-[9px] text-green-600 font-semibold">In Store</span>
+                                </div>
+                              </div>
+                              <div className="p-2">
+                                <p className="text-xs text-foreground line-clamp-2 leading-tight mb-1">{p.title}</p>
+                                {p.category && <p className="text-[10px] text-muted-foreground">{p.category}</p>}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {msg.products && msg.products.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <Globe className="w-3 h-3 text-muted-foreground" />
+                          <p className="text-xs font-medium text-muted-foreground">Web Findings</p>
+                        </div>
+                        <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-1 px-1">
+                          {msg.products.slice(0, 8).map((p, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => openExternalProduct(p, i, msg.id)}
+                              className="flex-shrink-0 w-36 bg-secondary rounded-xl overflow-hidden text-left transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cobalt-light"
+                            >
+                              <div className="relative aspect-square bg-background/50">
+                                {p.thumbnail ? (
+                                  <ProductImage src={p.thumbnail} alt={p.name ?? p.title} width={300} height={300} className="w-full h-full object-contain" loading="lazy" />
+                                ) : p.source_url ? (
+                                  <LinkThumb url={p.source_url} label={p.source} />
+                                ) : null}
+                              </div>
+                              <div className="p-2.5">
+                                <p className="text-xs text-foreground line-clamp-2 leading-tight mb-1">{p.name ?? p.title}</p>
+                                <p className="text-sm font-bold">
+                                  {p.total_cost != null || p.price != null ? `${p.currency ?? '$'}${p.total_cost ?? p.price}` : '—'}
+                                </p>
+                                {p.source && <p className="text-[10px] text-muted-foreground truncate">{p.source}</p>}
+                                <span className="flex items-center gap-1 mt-1.5 text-[10px] text-cobalt-light">
+                                  <ExternalLink className="w-2.5 h-2.5" /> Open details
+                                </span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {msg.suggestions && (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {msg.suggestions.map((s) => (
+                          <button key={s} onClick={() => setInput(s)}
+                            className="text-xs px-3 py-1.5 bg-cobalt-light/10 text-cobalt-light rounded-full hover:bg-cobalt-light/20 transition-colors">
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            </div>
-          </div>
-        )}
+            ))}
 
-        <div ref={messagesEndRef} />
+            {/* Thinking stream */}
+            {isTyping && (
+              <div className="flex justify-start">
+                <div className="glass-card px-4 py-3 rounded-2xl rounded-bl-sm max-w-[85%] space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-cobalt-light animate-pulse" />
+                    <span className="text-xs font-semibold text-cobalt-light">
+                      {model === 'pro' ? 'Running Pro live search...' : 'Thinking'}
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {visibleThoughts.map((thought, i) => {
+                      const isActive = i === visibleThoughts.length - 1;
+                      return (
+                        <div key={i} className={cn('flex items-start gap-2 text-xs transition-all', isActive ? 'text-foreground' : 'text-muted-foreground opacity-60')}>
+                          {isActive
+                            ? <div className="mt-[3px] w-3 h-3 flex-shrink-0 flex items-center justify-center"><div className="w-1.5 h-1.5 rounded-full bg-cobalt-light animate-pulse" /></div>
+                            : <Check className="mt-[1px] w-3 h-3 flex-shrink-0 text-green-500" />}
+                          <span>{thought}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </>
+        )}
       </div>
 
-      {/* ── Input area ────────────────────────────────────────────────────── */}
+      {/* Input area */}
       <div className="px-4 py-3 border-t border-border bg-background space-y-2">
-        {/* Model selector */}
+        {/* Model selector + quota */}
         <div className="flex items-center gap-1.5">
           {(['fast', 'pro'] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => setModel(m)}
-              disabled={m === 'pro' && proQuotaFull}
+            <button key={m} onClick={() => selectModel(m)} disabled={m === 'pro' && proQuotaFull} aria-pressed={model === m}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all border',
-                model === m
-                  ? 'bg-cobalt-light text-white border-cobalt-light shadow-sm'
-                  : 'bg-transparent text-muted-foreground border-border hover:text-foreground hover:border-foreground/30',
+                model === m ? 'bg-cobalt-light text-white border-cobalt-light shadow-sm' : 'bg-transparent text-muted-foreground border-border hover:text-foreground hover:border-foreground/30',
                 m === 'pro' && proQuotaFull && 'opacity-40 cursor-not-allowed',
-              )}
-            >
+              )}>
               {m === 'fast' ? <Zap className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
-              {m === 'fast' ? 'Fast' : 'Pro'}
+              {m === 'fast' ? 'Fast' : 'Pro Live'}
             </button>
           ))}
-
-          {model === 'pro' && (
-            <span
-              className={cn(
-                'ml-auto text-xs',
-                proQuotaFull ? 'text-destructive' : 'text-muted-foreground',
-              )}
-            >
-              {proQuotaFull
-                ? 'Quota full — resets tomorrow'
-                : `${proRemaining} Pro ${proRemaining === 1 ? 'use' : 'uses'} left today`}
-            </span>
-          )}
+          <div className="ml-auto flex items-center gap-2">
+            {model === 'pro' && (
+              <span className={cn('text-xs', proQuotaFull ? 'text-destructive font-medium' : 'text-muted-foreground')}>
+                {proQuotaFull ? '0 / 3 — resets midnight' : `${quota.remaining} / ${quota.limit} Pro left`}
+              </span>
+            )}
+            {messages.length > 0 && (
+              <button onClick={() => setMessages([])} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                <RotateCcw className="w-3 h-3" /> New
+              </button>
+            )}
+          </div>
         </div>
-
-        {/* Chat input */}
         <div className="glass-card p-1 flex items-center gap-2">
-          <Input
-            placeholder={model === 'fast' ? 'Quick search...' : 'Deep search with AI Pro...'}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
+          <Input placeholder={model === 'fast' ? 'Quick search...' : 'Deep search (Pro, 3/day)...'}
+            value={input} onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-            className="bg-transparent border-none text-foreground placeholder:text-muted-foreground focus-visible:ring-0 h-10"
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || isTyping || (model === 'pro' && proQuotaFull)}
-            className="bg-gradient-cobalt p-2.5 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
-          >
+            className="bg-transparent border-none text-foreground placeholder:text-muted-foreground focus-visible:ring-0 h-10" />
+          <button onClick={handleSend} disabled={!input.trim() || isTyping || (model === 'pro' && proQuotaFull)}
+            className="bg-gradient-cobalt p-2.5 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity">
             <Send className="w-4 h-4 text-primary-foreground" />
           </button>
         </div>
       </div>
-
-      <BottomNav />
+      <ProductPreviewDrawer
+        product={selectedProduct}
+        isOpen={!!selectedProduct}
+        onClose={() => setSelectedProduct(null)}
+      />
     </div>
   );
 };
+
+// ── Translate Panel (notebook Cell 25 — translate_text) ───────────────────────
+
+const TranslatePanel = () => {
+  const [text, setText]         = useState('');
+  const [language, setLanguage] = useState('Arabic');
+  const [result, setResult]     = useState('');
+  const [busy, setBusy]         = useState(false);
+  const [error, setError]       = useState('');
+
+  const handleTranslate = async () => {
+    if (!text.trim()) return;
+    setBusy(true); setError(''); setResult('');
+    try {
+      const out = await searchService.translateText(text.trim(), language);
+      setResult(out);
+    } catch (e: any) { setError(e?.message || 'Translation failed'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <FeaturePanel
+      icon={<Languages className="w-5 h-5 text-cobalt-light" />}
+      title="Text Translation"
+      subtitle="Translate product descriptions and reviews into any language"
+    >
+      <div className="space-y-3">
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Target Language</label>
+          <div className="glass-card px-3 py-2 flex items-center gap-2">
+            <Globe className="w-4 h-4 text-cobalt-light flex-shrink-0" />
+            <select value={language} onChange={(e) => setLanguage(e.target.value)}
+              className="flex-1 bg-transparent border-none text-sm text-foreground focus:outline-none">
+              {LANGUAGES.map((l) => <option key={l} value={l} className="bg-background">{l}</option>)}
+            </select>
+            <ChevronDown className="w-3 h-3 text-muted-foreground" />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Text to Translate</label>
+          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5}
+            placeholder="Paste product description, review, or any text..."
+            className="w-full glass-card rounded-xl p-3 text-sm text-foreground placeholder:text-muted-foreground bg-transparent border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-cobalt-light/30" />
+        </div>
+        <Button onClick={handleTranslate} disabled={busy || !text.trim()}
+          className="w-full bg-gradient-cobalt gap-2">
+          {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Translating...</> : <><Languages className="w-4 h-4" /> Translate</>}
+        </Button>
+        {error && <p className="text-xs text-destructive text-center">{error}</p>}
+        {result && (
+          <div className="glass-card p-4 rounded-xl space-y-2">
+            <p className="text-[10px] font-bold text-cobalt-light uppercase tracking-widest">{language} Translation</p>
+            <Markdown content={result} />
+          </div>
+        )}
+      </div>
+    </FeaturePanel>
+  );
+};
+
+// ── Summarize Panel (notebook Cell 27 — CohereSummarizer) ─────────────────────
+
+const SummarizePanel = () => {
+  const [text, setText]     = useState('');
+  const [length, setLength] = useState<'short' | 'medium' | 'long'>('medium');
+  const [result, setResult] = useState('');
+  const [busy, setBusy]     = useState(false);
+  const [error, setError]   = useState('');
+
+  const handleSummarize = async () => {
+    if (!text.trim()) return;
+    setBusy(true); setError(''); setResult('');
+    try { setResult(await searchService.summarizeText(text.trim(), length)); }
+    catch (e: any) { setError(e?.message || 'Summarization failed'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <FeaturePanel
+      icon={<FileText className="w-5 h-5 text-cobalt-light" />}
+      title="Text Summary"
+      subtitle="Summarize product descriptions and reviews using Cohere-command-a"
+    >
+      <div className="space-y-3">
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Summary Length</label>
+          <div className="flex gap-2">
+            {(['short', 'medium', 'long'] as const).map((l) => (
+              <button key={l} onClick={() => setLength(l)}
+                className={cn('flex-1 py-2 rounded-lg text-xs font-semibold border transition-all capitalize',
+                  length === l ? 'bg-cobalt-light text-white border-cobalt-light' : 'glass-card text-muted-foreground border-border/50 hover:text-foreground')}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Text to Summarize</label>
+          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5}
+            placeholder="Paste product description or customer reviews..."
+            className="w-full glass-card rounded-xl p-3 text-sm text-foreground placeholder:text-muted-foreground bg-transparent border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-cobalt-light/30" />
+        </div>
+        <Button onClick={handleSummarize} disabled={busy || !text.trim()}
+          className="w-full bg-gradient-cobalt gap-2">
+          {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Summarizing...</> : <><FileText className="w-4 h-4" /> Summarize</>}
+        </Button>
+        {error && <p className="text-xs text-destructive text-center">{error}</p>}
+        {result && (
+          <div className="glass-card p-4 rounded-xl space-y-2">
+            <p className="text-[10px] font-bold text-cobalt-light uppercase tracking-widest">{length} Summary</p>
+            <Markdown content={result} />
+          </div>
+        )}
+      </div>
+    </FeaturePanel>
+  );
+};
+
+// ── Ask Product Panel (notebook Cell 30 — ProductExpertAgent) ─────────────────
+
+const AskProductPanel = () => {
+  const [productName, setProductName] = useState('');
+  const [productSpecs, setProductSpecs] = useState('');
+  const [persona, setPersona] = useState('');
+  const [question, setQuestion] = useState('');
+  const [result, setResult] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleAsk = async () => {
+    if (!question.trim()) return;
+    setBusy(true); setError(''); setResult('');
+    try {
+      const productData: Record<string, unknown> = {};
+      if (productName.trim()) productData['name'] = productName.trim();
+      if (productSpecs.trim()) productData['specs'] = productSpecs.trim();
+      const out = await searchService.askAboutProduct(question.trim(), productData, persona.trim() || undefined);
+      setResult(out);
+    } catch (e: any) { setError(e?.message || 'Failed to get answer'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <FeaturePanel
+      icon={<MessageSquare className="w-5 h-5 text-cobalt-light" />}
+      title="Ask AI About Products"
+      subtitle="MyPal Product Expert answers questions using product metadata"
+    >
+      <div className="space-y-3">
+        <div className="glass-card p-4 space-y-3">
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Product Name</label>
+            <Input value={productName} onChange={(e) => setProductName(e.target.value)}
+              placeholder="e.g. Sony WH-1000XM5 Headphones"
+              className="h-9 text-sm" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Product Details / Specs</label>
+            <textarea value={productSpecs} onChange={(e) => setProductSpecs(e.target.value)} rows={3}
+              placeholder="Price, specs, availability, any other details..."
+              className="w-full rounded-lg p-2 text-sm text-foreground placeholder:text-muted-foreground bg-background border border-border resize-none focus:outline-none focus:ring-1 focus:ring-cobalt-light/30" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">User Persona (optional)</label>
+            <Input value={persona} onChange={(e) => setPersona(e.target.value)}
+              placeholder="e.g. Professional Athlete, Gamer, Student..."
+              className="h-9 text-sm" />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Your Question</label>
+          <div className="flex gap-2">
+            <Input value={question} onChange={(e) => setQuestion(e.target.value)}
+              placeholder="Ask anything about this product..."
+              onKeyDown={(e) => e.key === 'Enter' && handleAsk()}
+              className="flex-1 h-10 text-sm" />
+            <Button onClick={handleAsk} disabled={busy || !question.trim()} className="bg-gradient-cobalt px-4">
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            </Button>
+          </div>
+        </div>
+        {error && <p className="text-xs text-destructive text-center">{error}</p>}
+        {result && (
+          <div className="glass-card p-4 rounded-xl space-y-2">
+            <p className="text-[10px] font-bold text-cobalt-light uppercase tracking-widest">AI Expert Answer</p>
+            <Markdown content={result} />
+          </div>
+        )}
+      </div>
+    </FeaturePanel>
+  );
+};
+
+// ── Recommend Panel (notebook Cell 33 — MyPalProdRecommender) ─────────────────
+
+const RecommendPanel = () => {
+  const [mode, setMode]         = useState<'auto' | 'manual'>('auto');
+  const [persona, setPersona]   = useState('');
+  const [manualProducts, setManualProducts] = useState<any[]>([]);
+  const [busy, setBusy]         = useState(false);
+  const [error, setError]       = useState('');
+  const [selectedProduct, setSelectedProduct] = useState<ProductPreview | null>(null);
+
+  // Auto-personalised (default) — uses real user activity from the server
+  const { data: autoData, loading: autoLoading, refetch: refetchAuto } =
+    useAsync(() => searchService.getPersonalizedRecommendations(), []);
+
+  const { data: catalogData } = useAsync(() => productService.list({ pageSize: 24 }), []);
+  const catalog = (catalogData?.products ?? []).map((p) => ({ id: p.id, title: p.title, category: p.category || '' }));
+
+  const handleManualRecommend = async () => {
+    if (!persona.trim()) return;
+    setBusy(true); setError(''); setManualProducts([]);
+    try {
+      const raw = await searchService.getRecommendations(persona.trim(), catalog);
+      const str   = typeof raw === 'string' ? raw : JSON.stringify(raw);
+      const match = str.match(/\[[\s\S]*?\]/);
+      let topIds: string[] = [];
+      if (match) { try { topIds = JSON.parse(match[0]).map(String); } catch { /* ignore */ } }
+      const found = topIds.map((id) => catalogData?.products.find((p) => p.id === id)).filter(Boolean);
+      setManualProducts(found.length > 0 ? found : catalogData?.products.slice(0, 3) ?? []);
+    } catch (e: any) { setError(e?.message || 'Recommendation failed'); }
+    finally { setBusy(false); }
+  };
+
+  const displayProducts = mode === 'auto'
+    ? (autoData?.products ?? []).map((r) => ({ id: r.id, title: r.title, price: r.price, image: r.image, category: r.category }))
+    : manualProducts;
+
+  const isLoading = mode === 'auto' ? autoLoading : busy;
+  const isPersonalized = mode === 'auto' && autoData?.persona === 'personalized';
+
+  const openRecommendedProduct = async (product: any) => {
+    const preview: ProductPreview = {
+      id: product.id,
+      title: product.title,
+      price: Number(product.price ?? 0),
+      image: product.image || PRODUCT_IMAGE_FALLBACK,
+      source: 'marketplace',
+      seller: product.seller ?? { name: 'MyPal', isMyPal: true },
+      rating: Number(product.rating ?? 0),
+      category: product.category,
+      description: product.description ?? 'Recommended MyPal catalog listing. Open it here to review details and add it to your cart.',
+    };
+    setSelectedProduct(preview);
+
+    try {
+      const fullProduct = await productService.get(product.id);
+      setSelectedProduct({
+        ...fullProduct,
+        source: 'marketplace',
+        seller: fullProduct.seller ?? preview.seller,
+      });
+    } catch {
+      // Keep the immediate preview if the detail endpoint is unavailable.
+    }
+  };
+
+  return (
+    <FeaturePanel
+      icon={<Star className="w-5 h-5 text-cobalt-light" />}
+      title="Recommendation System"
+      subtitle="ProdBERT embedding + GPT re-ranking — personalised from your searches, orders & wishlist"
+    >
+      <div className="space-y-3">
+        {/* Mode selector */}
+        <div className="flex gap-2">
+          {(['auto', 'manual'] as const).map((m) => (
+            <button key={m} onClick={() => setMode(m)}
+              className={cn('flex-1 py-2 rounded-lg text-xs font-semibold border transition-all capitalize',
+                mode === m ? 'bg-cobalt-light text-white border-cobalt-light' : 'glass-card text-muted-foreground border-border/50 hover:text-foreground')}>
+              {m === 'auto' ? '✦ Auto (your activity)' : 'Custom persona'}
+            </button>
+          ))}
+        </div>
+
+        {mode === 'auto' ? (
+          <div className="space-y-3">
+            <div className="glass-card p-3 rounded-xl flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-foreground">
+                  {isPersonalized ? '✦ Personalised for you' : 'Popular products'}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {isPersonalized
+                    ? 'Based on your searches, wishlist & orders'
+                    : 'Start searching and wishlisting to personalise'}
+                </p>
+              </div>
+              <button onClick={() => refetchAuto()} disabled={autoLoading}
+                className="text-xs text-cobalt-light hover:underline disabled:opacity-50">
+                {autoLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Refresh'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Your Interests</label>
+            <textarea value={persona} onChange={(e) => setPersona(e.target.value)} rows={3}
+              placeholder="e.g. Serious bodybuilder looking for clean recovery gear and gym equipment..."
+              className="w-full glass-card rounded-xl p-3 text-sm text-foreground placeholder:text-muted-foreground bg-transparent border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-cobalt-light/30" />
+            <Button onClick={handleManualRecommend} disabled={busy || !persona.trim() || catalog.length === 0}
+              className="w-full bg-gradient-cobalt gap-2">
+              {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Analysing...</> : <><Star className="w-4 h-4" /> Get Recommendations</>}
+            </Button>
+          </div>
+        )}
+
+        {error && <p className="text-xs text-destructive text-center">{error}</p>}
+
+        {/* Product cards */}
+        {isLoading ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="glass-card p-3 flex items-center gap-3 animate-pulse">
+                <div className="w-8 h-8 rounded-full bg-secondary/60 flex-shrink-0" />
+                <div className="w-12 h-12 rounded-lg bg-secondary/60 flex-shrink-0" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-3 bg-secondary/60 rounded w-3/4" />
+                  <div className="h-3 bg-secondary/60 rounded w-1/2" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : displayProducts.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-cobalt-light uppercase tracking-widest">
+              Top {displayProducts.length} pick{displayProducts.length > 1 ? 's' : ''}
+            </p>
+            {displayProducts.map((p: any, i: number) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => openRecommendedProduct(p)}
+                className="glass-card p-3 flex w-full items-center gap-3 text-left transition-all hover:border-cobalt-light/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cobalt-light"
+              >
+                <div className="w-8 h-8 rounded-full bg-cobalt-light/10 flex items-center justify-center flex-shrink-0">
+                  <span className="text-xs font-black text-cobalt-light">#{i + 1}</span>
+                </div>
+                {p.image && <ProductImage src={p.image} alt={p.title} width={96} height={96} className="w-12 h-12 rounded-lg object-cover flex-shrink-0" />}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground line-clamp-1">{p.title}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {p.category}{p.price ? ` · $${Number(p.price).toFixed(2)}` : ''}
+                  </p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+        <ProductPreviewDrawer
+          product={selectedProduct}
+          isOpen={!!selectedProduct}
+          onClose={() => setSelectedProduct(null)}
+        />
+      </div>
+    </FeaturePanel>
+  );
+};
+
+// ── Seller Analytics Panel (notebook Cell 35 — MyPalSellerAnalytics) ──────────
+
+const SellerAnalyticsPanel = () => {
+  const [products, setProducts] = useState<{ product_name: string; reviews: string[] }[]>([
+    { product_name: '', reviews: [''] },
+  ]);
+  const [result, setResult] = useState('');
+  const [busy, setBusy]     = useState(false);
+  const [error, setError]   = useState('');
+
+  const addProduct = () => setProducts((p) => [...p, { product_name: '', reviews: [''] }]);
+  const removeProduct = (i: number) => setProducts((p) => p.filter((_, idx) => idx !== i));
+  const setProductName = (i: number, v: string) =>
+    setProducts((p) => p.map((pr, idx) => idx === i ? { ...pr, product_name: v } : pr));
+  const addReview = (i: number) =>
+    setProducts((p) => p.map((pr, idx) => idx === i ? { ...pr, reviews: [...pr.reviews, ''] } : pr));
+  const setReview = (pi: number, ri: number, v: string) =>
+    setProducts((p) => p.map((pr, idx) => idx === pi ? { ...pr, reviews: pr.reviews.map((r, j) => j === ri ? v : r) } : pr));
+  const removeReview = (pi: number, ri: number) =>
+    setProducts((p) => p.map((pr, idx) => idx === pi ? { ...pr, reviews: pr.reviews.filter((_, j) => j !== ri) } : pr));
+
+  const handleAnalyze = async () => {
+    const valid = products.filter((p) => p.product_name.trim() && p.reviews.some((r) => r.trim()));
+    if (!valid.length) return;
+    setBusy(true); setError(''); setResult('');
+    try {
+      const payload = valid.map((p) => ({
+        product_name: p.product_name.trim(),
+        reviews: p.reviews.filter((r) => r.trim()),
+      }));
+      setResult(await searchService.analyzeSellerPerformance(payload));
+    } catch (e: any) { setError(e?.message || 'Analysis failed'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <FeaturePanel
+      icon={<BarChart3 className="w-5 h-5 text-cobalt-light" />}
+      title="AI Seller Performance"
+      subtitle="Map-Reduce pipeline: GPT-OSS maps reviews → Cohere-command-r+ generates seller identity report"
+    >
+      <div className="space-y-4">
+        {products.map((prod, pi) => (
+          <div key={pi} className="glass-card p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Product {pi + 1}</label>
+              {products.length > 1 && (
+                <button onClick={() => removeProduct(pi)} className="text-destructive hover:opacity-70">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            <Input value={prod.product_name} onChange={(e) => setProductName(pi, e.target.value)}
+              placeholder="e.g. Ergonomic Keyboard" className="h-9 text-sm" />
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Reviews</label>
+              {prod.reviews.map((rev, ri) => (
+                <div key={ri} className="flex gap-2">
+                  <Input value={rev} onChange={(e) => setReview(pi, ri, e.target.value)}
+                    placeholder={`Review ${ri + 1}...`} className="flex-1 h-9 text-sm" />
+                  {prod.reviews.length > 1 && (
+                    <button onClick={() => removeReview(pi, ri)} className="text-muted-foreground hover:text-destructive p-1">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button onClick={() => addReview(pi)} className="text-xs text-cobalt-light flex items-center gap-1 hover:opacity-80">
+                <Plus className="w-3 h-3" /> Add review
+              </button>
+            </div>
+          </div>
+        ))}
+
+        <div className="flex gap-2">
+          <button onClick={addProduct} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-dashed border-border/60 rounded-lg px-3 py-2">
+            <Plus className="w-3 h-3" /> Add product
+          </button>
+          <Button onClick={handleAnalyze} disabled={busy} className="flex-1 bg-gradient-cobalt gap-2">
+            {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Analysing seller...</> : <><BarChart3 className="w-4 h-4" /> Generate Report</>}
+          </Button>
+        </div>
+
+        {error && <p className="text-xs text-destructive text-center">{error}</p>}
+        {result && (
+          <div className="glass-card p-4 rounded-xl space-y-2">
+            <p className="text-[10px] font-bold text-cobalt-light uppercase tracking-widest">Seller Identity Report</p>
+            <Markdown content={result} />
+          </div>
+        )}
+      </div>
+    </FeaturePanel>
+  );
+};
+
+// ── Shared FeaturePanel wrapper ────────────────────────────────────────────────
+
+const FeaturePanel = ({
+  icon, title, subtitle, children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  children: React.ReactNode;
+}) => (
+  <div className="h-full overflow-y-auto">
+    <div className="px-4 py-5 space-y-4">
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-xl bg-cobalt-light/10 flex items-center justify-center flex-shrink-0">
+          {icon}
+        </div>
+        <div>
+          <h2 className="text-base font-serif font-bold text-foreground">{title}</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
+        </div>
+      </div>
+      {children}
+    </div>
+  </div>
+);
 
 export default AISearchScreen;

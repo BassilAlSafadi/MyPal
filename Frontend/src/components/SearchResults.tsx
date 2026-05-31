@@ -2,6 +2,7 @@ import { SearchResult } from '@/stores/searchStore';
 import { useWishlistStore } from '@/stores/wishlistStore';
 import { ExternalLink, Heart, Star, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
+import ProductImage from '@/components/ProductImage';
 
 interface Props {
   results: SearchResult[];
@@ -41,7 +42,7 @@ const SearchResults = ({ results, aiSummary }: Props) => {
           <Sparkles className="w-4 h-4 text-cobalt-light" />
           <span className="text-xs font-semibold text-cobalt-light uppercase tracking-wider">AI Summary</span>
         </div>
-        <p className="text-sm text-muted-foreground leading-relaxed">{aiSummary}</p>
+        <p className="ai-response-copy-sm text-muted-foreground">{aiSummary}</p>
       </div>
 
       {/* External Results */}
@@ -74,7 +75,7 @@ const SearchResults = ({ results, aiSummary }: Props) => {
 const ResultCard = ({ result, wishlisted, onToggleWishlist }: { result: SearchResult; wishlisted: boolean; onToggleWishlist: () => void }) => (
   <div className="glass-card overflow-hidden group">
     <div className="relative">
-      <img src={result.image} alt={result.title} className="w-full h-32 object-cover" />
+      <ProductImage src={result.image} alt={result.title} width={480} height={320} className="w-full h-32 object-cover" />
       <button
         onClick={onToggleWishlist}
         className="absolute top-2 right-2 p-1.5 rounded-full bg-background/60 backdrop-blur-sm"

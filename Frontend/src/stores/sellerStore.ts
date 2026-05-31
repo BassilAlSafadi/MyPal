@@ -25,14 +25,14 @@ export const useSellerStore = create<SellerState>((set) => ({
   loading: false,
   error: null,
   fetchSellerReport: async (sellerId: string) => {
-    set({ loading: true, error: null });
+    set({ report: null, loading: true, error: null });
     try {
       const data = await apiClient.get<SellerPerformanceSummary>(
         `/api/v1/seller-report/${encodeURIComponent(sellerId)}`,
       );
       set({ report: data, loading: false });
     } catch (e: any) {
-      set({ error: e?.message || String(e), loading: false });
+      set({ report: null, error: e?.message || String(e), loading: false });
     }
   },
 }));

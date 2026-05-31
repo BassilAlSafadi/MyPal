@@ -1,0 +1,7 @@
+<svg width="800" height="800" viewBox="0 0 800 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="800" height="800" rx="48" fill="#eef3f8"/>
+  <rect x="192" y="220" width="416" height="360" rx="40" fill="#ffffff" stroke="#c8d6e6" stroke-width="20"/>
+  <path d="M260 500L340 404L424 488L470 436L548 500" stroke="#1d5fbf" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="488" cy="322" r="42" fill="#8bb9f5"/>
+  <text x="400" y="650" fill="#0f274a" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="700" text-anchor="middle">MyPal</text>
+</svg>

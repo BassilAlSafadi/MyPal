@@ -1,0 +1,40 @@
+
+> mypal-frontend@0.0.0 dev
+> vite --host 0.0.0.0
+
+
+  VITE v5.4.19  ready in 741 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: http://192.168.3.1:5173/
+  ➜  Network: http://192.168.208.1:5173/
+  ➜  Network: http://192.168.1.4:5173/
+  ➜  Network: http://172.17.208.1:5173/
+4:07:26 AM [vite] hmr update /src/index.css, /src/pages/HomeScreen.tsx, /src/pages/AISearchScreen.tsx, /src/pages/WishlistScreen.tsx, /src/components/ProductCard.tsx
+4:08:15 AM [vite] hmr update /src/App.tsx, /src/index.css
+4:08:16 AM [vite] hmr update /src/App.tsx, /src/index.css
+4:08:28 AM [vite] hmr update /src/pages/HomeScreen.tsx, /src/index.css
+4:08:29 AM [vite] ✨ new dependencies optimized: @supabase/supabase-js
+4:08:29 AM [vite] ✨ optimized dependencies changed. reloading
+4:08:31 AM [vite] hmr update /src/pages/HomeScreen.tsx, /src/index.css
+4:09:07 AM [vite] hmr update /src/index.css
+4:09:17 AM [vite] hmr update /src/pages/AISearchScreen.tsx, /src/index.css
+4:09:18 AM [vite] hmr update /src/pages/AISearchScreen.tsx, /src/index.css
+4:09:21 AM [vite] ✨ new dependencies optimized: react-markdown, remark-gfm
+4:09:21 AM [vite] ✨ optimized dependencies changed. reloading
+4:09:24 AM [vite] hmr update /src/pages/AISearchScreen.tsx, /src/index.css
+4:09:26 AM [vite] hmr update /src/pages/AISearchScreen.tsx, /src/index.css
+4:09:28 AM [vite] hmr update /src/pages/AISearchScreen.tsx, /src/index.css
+4:09:30 AM [vite] hmr update /src/pages/AISearchScreen.tsx, /src/index.css
+4:09:36 AM [vite] hmr update /src/components/AIChatBubble.tsx, /src/index.css
+4:09:39 AM [vite] hmr update /src/components/AIChatBubble.tsx, /src/index.css
+4:19:29 AM [vite] hmr update /src/index.css, /src/pages/HomeScreen.tsx, /src/pages/SearchScreen.tsx
+4:19:35 AM [vite] hmr update /src/index.css, /src/pages/HomeScreen.tsx, /src/pages/SearchScreen.tsx
+4:19:43 AM [vite] hmr update /src/index.css, /src/pages/HomeScreen.tsx, /src/pages/SearchScreen.tsx
+4:20:14 AM [vite] hmr update /src/components/ProductCard.tsx, /src/index.css
+4:20:20 AM [vite] hmr update /src/components/ProductCard.tsx, /src/index.css
+4:20:28 AM [vite] hmr update /src/components/ProductCard.tsx, /src/index.css
+4:20:37 AM [vite] hmr update /src/components/ProductPreviewDrawer.tsx, /src/index.css
+4:20:40 AM [vite] hmr update /src/components/ProductPreviewDrawer.tsx, /src/index.css
+4:20:51 AM [vite] hmr update /src/pages/AISearchScreen.tsx, /src/index.css
+4:20:54 AM [vite] hmr update /src/pages/AISearchScreen.tsx, /src/index.css

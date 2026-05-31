@@ -26,7 +26,17 @@ function asContent(response) {
   if (!response) return '';
   if (typeof response === 'string') return response;
   if (response.content) return response.content;
-  if (response.choices?.[0]?.message?.content) return response.choices[0].message.content;
+  if (response.choices?.[0]?.message) {
+    const message = response.choices[0].message;
+    if (typeof message.content === 'string') return message.content;
+    if (Array.isArray(message.content)) {
+      return message.content
+        .map((part) => part?.text || part?.content || '')
+        .filter(Boolean)
+        .join('\n');
+    }
+    return '';
+  }
   if (response.generations?.[0]?.text) return response.generations[0].text;
   if (response.text) return response.text;
   return JSON.stringify(response);
