@@ -113,6 +113,33 @@ app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "MyPal API v
 app.UseAuthentication();
 app.UseAuthorization();
 
+// ─── Internal-service gate (defense in depth) ────────────────────────────────
+// Every request reaches C# through the Go gateway, which injects X-Internal-Token.
+// Requiring it here means the C# space cannot be called directly with a forged
+// X-User-Id to impersonate users. Exempt: root health, Swagger, and the Google
+// OAuth routes (those are hit by the browser directly, not via the gateway).
+var internalServiceToken = builder.Configuration["INTERNAL_SERVICE_TOKEN"];
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path.Value ?? "";
+    var exempt = path == "/"
+        || path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/api/auth/google", StringComparison.OrdinalIgnoreCase);
+
+    if (!exempt && !string.IsNullOrEmpty(internalServiceToken))
+    {
+        var provided = context.Request.Headers["X-Internal-Token"].FirstOrDefault();
+        if (!CryptographicEquals(provided, internalServiceToken))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new { error = "Forbidden: requests must go through the gateway" });
+            return;
+        }
+    }
+
+    await next();
+});
+
 app.MapGet("/", async (MyPalDbContext db) =>
 {
     var dbOk = false;
@@ -177,6 +204,8 @@ app.MapPost("/api/auth/signup", async (SignupRequest request, HttpContext contex
 {
     if (string.IsNullOrWhiteSpace(request.Email))
         return Results.BadRequest(new { error = "Email is required" });
+    if (string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 8)
+        return Results.BadRequest(new { error = "Password must be at least 8 characters" });
 
     var user = await db.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
     if (user != null) return Results.BadRequest(new { error = "User already exists" });
@@ -195,6 +224,7 @@ app.MapPost("/api/auth/signup", async (SignupRequest request, HttpContext contex
         Country = string.IsNullOrWhiteSpace(request.Country) ? null : request.Country.Trim(),
         State = string.IsNullOrWhiteSpace(request.State) ? null : request.State.Trim(),
         City = string.IsNullOrWhiteSpace(request.City) ? null : request.City.Trim(),
+        PasswordHash = PasswordHasher.Hash(request.Password),
         IsBuyer = true,
         Roles = ["buyer"],
         CreatedAt = DateTime.UtcNow,
@@ -214,8 +244,28 @@ app.MapPost("/api/auth/signup", async (SignupRequest request, HttpContext contex
 
 app.MapPost("/api/auth/login", async (LoginRequest request, HttpContext context, MyPalDbContext db, IJwtService jwtService) =>
 {
-    var user = await db.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
+    if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
+        return Results.Unauthorized();
+
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Email == request.Email && u.IsDeleted != true);
     if (user == null) return Results.Unauthorized();
+
+    if (!string.IsNullOrEmpty(user.PasswordHash))
+    {
+        // Account has a password set — verify it.
+        if (!PasswordHasher.Verify(request.Password, user.PasswordHash))
+            return Results.Unauthorized();
+    }
+    else
+    {
+        // Legacy/OAuth account with no password yet. Trust-on-first-use: the next
+        // password login establishes the password for this account. This migrates
+        // pre-existing demo accounts without locking anyone out; new accounts always
+        // have a hash from signup so they take the verify branch above.
+        user.PasswordHash = PasswordHasher.Hash(request.Password);
+        user.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+    }
 
     var accessToken = jwtService.GenerateAccessToken(user);
     var refreshToken = jwtService.GenerateRefreshToken(user);
@@ -264,7 +314,10 @@ app.MapGet("/api/auth/google/complete", async (HttpContext context, MyPalDbConte
     SetRefreshCookie(context, refreshToken);
 
     var frontendUrl = builder.Configuration["FRONTEND_URL"] ?? "http://localhost:5173";
-    return Results.Redirect($"{frontendUrl}/auth/callback?access_token={accessToken}");
+    // Include the refresh token in the URL so the SPA can persist it in localStorage
+    // immediately — needed on iOS Safari and other browsers that block cross-site cookies.
+    // The SPA navigates away with replace:true so the token doesn't stay in browser history.
+    return Results.Redirect($"{frontendUrl}/auth/callback?access_token={Uri.EscapeDataString(accessToken)}&refresh_token={Uri.EscapeDataString(refreshToken)}");
 });
 
 app.MapPost("/api/auth/refresh", async (RefreshRequest request, HttpContext context, MyPalDbContext db, IJwtService jwtService) =>
@@ -290,9 +343,26 @@ app.MapPost("/api/auth/refresh", async (RefreshRequest request, HttpContext cont
     return Results.Ok(AuthPayload(user, accessToken, rotatedRefreshToken));
 });
 
+// Issues a refresh cookie for an already-authenticated session. The gateway validates
+// the access token and injects X-User-Id before this runs. Used after Google OAuth,
+// whose original refresh cookie was set on the C# domain (hf.space) and is therefore
+// unreachable by the gateway-routed /refresh. Because this response flows back through
+// the gateway, the Set-Cookie lands on the gateway domain where /refresh can read it.
+app.MapPost("/api/auth/bootstrap-session", async (HttpRequest req, HttpContext context, MyPalDbContext db, IJwtService jwtService) =>
+{
+    var user = await ResolveUserAsync(req, db);
+    if (user == null) return Results.Unauthorized();
+
+    var refreshToken = jwtService.GenerateRefreshToken(user);
+    SetRefreshCookie(context, refreshToken);
+    return Results.Ok(new { ok = true });
+});
+
 app.MapPost("/api/auth/logout", (HttpContext context) =>
 {
-    context.Response.Cookies.Delete("mypal_refresh", new CookieOptions { Path = "/" });
+    // Delete must mirror the SameSite/Secure attributes the cookie was set with,
+    // or the browser won't match and clear it.
+    context.Response.Cookies.Delete("mypal_refresh", RefreshCookieOptions(context, DateTimeOffset.UtcNow.AddDays(-1)));
     return Results.Ok();
 });
 
@@ -452,6 +522,7 @@ app.MapPost("/api/products", async (HttpRequest req, CreateProductRequest body, 
         Type         = body.Type,
         CurrentPrice = body.CurrentPrice,
         StockQty     = body.StockQty ?? 1,
+        CreatedBy    = user.Id,
         CreatedAt    = DateTime.UtcNow,
         UpdatedAt    = DateTime.UtcNow,
     };
@@ -483,10 +554,17 @@ app.MapPut("/api/products/{id:guid}", async (Guid id, HttpRequest req, UpdatePro
 {
     var user = await ResolveUserAsync(req, db);
     if (user == null) return Results.Unauthorized();
-    if (!user.IsSeller) return Results.Forbid();
+    // Return a real 403 JSON, not Results.Forbid() — the latter triggers the cookie
+    // auth handler's 302 redirect to /Account/AccessDenied, which is wrong for an API.
+    if (!user.IsSeller) return Results.Json(new { error = "Only sellers can edit listings" }, statusCode: StatusCodes.Status403Forbidden);
 
     var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.IsDeleted != true);
     if (product == null) return Results.NotFound(new { error = "Product not found" });
+
+    // Ownership: a seller may only edit their own listings. Legacy/seeded catalog
+    // rows (CreatedBy == null) are not owned by any seller and cannot be edited.
+    if (product.CreatedBy != user.Id)
+        return Results.Json(new { error = "You can only edit your own listings" }, statusCode: StatusCodes.Status403Forbidden);
 
     if (body.Name is not null)         product.Name         = body.Name.Trim();
     if (body.Description is not null)  product.Description  = body.Description;
@@ -506,10 +584,14 @@ app.MapDelete("/api/products/{id:guid}", async (Guid id, HttpRequest req, MyPalD
 {
     var user = await ResolveUserAsync(req, db);
     if (user == null) return Results.Unauthorized();
-    if (!user.IsSeller) return Results.Forbid();
+    if (!user.IsSeller) return Results.Json(new { error = "Only sellers can delete listings" }, statusCode: StatusCodes.Status403Forbidden);
 
     var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.IsDeleted != true);
     if (product == null) return Results.NotFound(new { error = "Product not found" });
+
+    // Ownership: a seller may only delete their own listings.
+    if (product.CreatedBy != user.Id)
+        return Results.Json(new { error = "You can only delete your own listings" }, statusCode: StatusCodes.Status403Forbidden);
 
     product.IsDeleted = true;
     product.UpdatedAt = DateTime.UtcNow;
@@ -562,9 +644,11 @@ app.MapPost("/api/orders", async (HttpRequest req, CreateOrderRequest body, MyPa
     if (body.Items == null || body.Items.Count == 0)
         return Results.BadRequest(new { error = "Order must contain at least one item" });
 
-    // Validate products and sum total
+    // Validate products, check stock, and sum total. Keep product references so
+    // we can decrement stock atomically with the order below.
     decimal total = 0m;
     var orderItems = new List<OrderItem>();
+    var purchasedProducts = new List<(Product Product, int Quantity)>();
     foreach (var item in body.Items)
     {
         var product = await db.Products.FirstOrDefaultAsync(p => p.Id == item.ProductId && p.IsDeleted != true);
@@ -572,9 +656,13 @@ app.MapPost("/api/orders", async (HttpRequest req, CreateOrderRequest body, MyPa
             return Results.BadRequest(new { error = $"Product {item.ProductId} not found" });
         if (item.Quantity <= 0)
             return Results.BadRequest(new { error = "Quantity must be > 0" });
+        // Enforce stock when the product tracks it (null = untracked/unlimited).
+        if (product.StockQty.HasValue && product.StockQty.Value < item.Quantity)
+            return Results.BadRequest(new { error = $"Insufficient stock for {product.Name}: {product.StockQty} left" });
 
         var price = product.CurrentPrice ?? 0m;
         total += price * item.Quantity;
+        purchasedProducts.Add((product, item.Quantity));
         orderItems.Add(new OrderItem
         {
             Id               = Guid.NewGuid(),
@@ -605,9 +693,53 @@ app.MapPost("/api/orders", async (HttpRequest req, CreateOrderRequest body, MyPa
     foreach (var item in orderItems)
         item.OrderId = order.Id;
 
+    await using var tx = await db.Database.BeginTransactionAsync();
+
     db.Orders.Add(order);
     db.OrderItems.AddRange(orderItems);
     await db.SaveChangesAsync();
+
+    // The BEFORE-INSERT process_wallet_payment trigger recomputes wallet_amount_used,
+    // cod_amount_due, payment_method and debits the wallet. Reload so the in-memory
+    // entity (and the response) reflect the authoritative trigger-set values.
+    await db.Entry(order).ReloadAsync();
+
+    // Record the wallet spend in the ledger so balance and transaction history agree.
+    var walletSpent = order.WalletAmountUsed;
+    if (walletSpent > 0)
+    {
+        db.Transactions.Add(new Transaction
+        {
+            Id        = Guid.NewGuid(),
+            UserId    = user.Id,
+            Type      = "Purchase",
+            Amount    = -walletSpent,
+            OrderId   = order.Id,
+            CreatedAt = DateTime.UtcNow,
+        });
+    }
+
+    // Decrement stock for tracked products.
+    foreach (var (product, qty) in purchasedProducts)
+    {
+        if (product.StockQty.HasValue)
+        {
+            product.StockQty = Math.Max(0, product.StockQty.Value - qty);
+            product.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    // Clear the cart atomically with the order so the frontend sees an empty cart
+    var cart = await db.Carts.Include(c => c.CartItems)
+        .FirstOrDefaultAsync(c => c.UserId == user.Id);
+    if (cart != null)
+    {
+        db.CartItems.RemoveRange(cart.CartItems);
+        db.Carts.Remove(cart);
+    }
+
+    await db.SaveChangesAsync();
+    await tx.CommitAsync();
 
     order.OrderItems = orderItems;
     return Results.Created($"/api/orders/{order.Id}", ToOrderResponse(order));
@@ -919,6 +1051,14 @@ app.Run();
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+static bool CryptographicEquals(string? a, string? b)
+{
+    if (a is null || b is null) return false;
+    var ba = System.Text.Encoding.UTF8.GetBytes(a);
+    var bb = System.Text.Encoding.UTF8.GetBytes(b);
+    return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(ba, bb);
+}
+
 static void SeedWelcomeWallet(User user, MyPalDbContext db)
 {
     // Simulated starting funds. MyPal is a demo marketplace — wallet money is
@@ -986,14 +1126,24 @@ static UserIdentityResponse ToUserIdentity(User user)
 
 static void SetRefreshCookie(HttpContext context, string refreshToken)
 {
-    context.Response.Cookies.Append("mypal_refresh", refreshToken, new CookieOptions
+    context.Response.Cookies.Append("mypal_refresh", refreshToken, RefreshCookieOptions(context, DateTimeOffset.UtcNow.AddDays(30)));
+}
+
+// The SPA (Vercel) talks to the gateway (Render) cross-site, so the refresh cookie
+// must be SameSite=None to be sent on cross-origin fetch — otherwise the browser
+// drops it on reload and the user is forced to log in again. SameSite=None requires
+// Secure, which local HTTP dev can't provide, so fall back to Lax there.
+static CookieOptions RefreshCookieOptions(HttpContext context, DateTimeOffset expires)
+{
+    var crossSite = context.Request.IsHttps;
+    return new CookieOptions
     {
         HttpOnly = true,
-        Secure   = context.Request.IsHttps,
-        SameSite = SameSiteMode.Lax,
-        Expires  = DateTimeOffset.UtcNow.AddDays(30),
+        Secure   = crossSite,
+        SameSite = crossSite ? SameSiteMode.None : SameSiteMode.Lax,
+        Expires  = expires,
         Path     = "/",
-    });
+    };
 }
 
 // ─── Request / Response records ─────────────────────────────────────────────
@@ -1002,7 +1152,7 @@ public record LoginRequest(string Email, string? Password);
 public record SignupRequest(
     string Email, string Password, string? Name,
     string? Country, string? State, string? City);
-public record RefreshRequest(string? RefreshToken);
+public record RefreshRequest([property: JsonPropertyName("refresh_token")] string? RefreshToken);
 
 public record UpdateProfileRequest(
     string? FirstName, string? LastName,

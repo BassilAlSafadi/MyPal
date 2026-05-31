@@ -45,7 +45,7 @@ export class GatewayError extends Error {
 }
 
 // ──────────────────────────────────────────
-// In-memory token store (never localStorage)
+// In-memory access token store
 // ──────────────────────────────────────────
 
 let _accessToken: string | null = null;
@@ -54,6 +54,30 @@ export const tokenStore = {
   set: (token: string) => { _accessToken = token; },
   get: () => _accessToken,
   clear: () => { _accessToken = null; },
+};
+
+// ──────────────────────────────────────────
+// Persistent refresh token store (localStorage)
+//
+// httpOnly cookies are the ideal storage but the Supabase edge-function
+// proxy cannot forward Set-Cookie headers (Deno Fetch API filters them),
+// and iOS Safari blocks cross-site cookies regardless of SameSite=None.
+// Storing the refresh token here lets every browser/OS survive page reloads.
+// The access token remains in-memory only (never persisted).
+// ──────────────────────────────────────────
+
+const REFRESH_TOKEN_KEY = 'mypal_rt';
+
+export const refreshTokenStore = {
+  set: (token: string) => {
+    try { localStorage.setItem(REFRESH_TOKEN_KEY, token); } catch {}
+  },
+  get: (): string | null => {
+    try { return localStorage.getItem(REFRESH_TOKEN_KEY); } catch { return null; }
+  },
+  clear: () => {
+    try { localStorage.removeItem(REFRESH_TOKEN_KEY); } catch {}
+  },
 };
 
 // ──────────────────────────────────────────
@@ -131,32 +155,40 @@ async function refreshAccessToken(): Promise<boolean> {
   const traceId = generateTraceId();
 
   try {
+    const storedRefreshToken = refreshTokenStore.get();
     const response = await fetch(`${env.API_GATEWAY}/api/v1/auth/refresh`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Trace-ID': traceId,
       },
-      body: JSON.stringify({}),
+      // Send the stored refresh token in the body so mobile browsers that
+      // block cross-site cookies (iOS Safari) can still refresh. The server
+      // falls back to the httpOnly cookie if the body field is absent.
+      body: JSON.stringify(storedRefreshToken ? { refresh_token: storedRefreshToken } : {}),
       credentials: 'include',
     });
 
     if (!response.ok) {
       tokenStore.clear();
+      refreshTokenStore.clear();
       return false;
     }
 
     const body = await parseResponseBody(response);
-    const payload = isAPIResponse<{ access_token?: string }>(body)
+    const payload = isAPIResponse<{ access_token?: string; refresh_token?: string }>(body)
       ? body.data
-      : body as { access_token?: string } | undefined;
+      : body as { access_token?: string; refresh_token?: string } | undefined;
 
     if (!payload?.access_token) {
       tokenStore.clear();
+      refreshTokenStore.clear();
       return false;
     }
 
     tokenStore.set(payload.access_token);
+    // Persist rotated refresh token so the next reload can also survive.
+    if (payload.refresh_token) refreshTokenStore.set(payload.refresh_token);
     return true;
   } catch {
     tokenStore.clear();

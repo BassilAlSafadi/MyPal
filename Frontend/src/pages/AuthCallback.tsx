@@ -1,77 +1,89 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
-import { tokenStore, apiClient } from '@/api/client';
-import { Loader2 } from 'lucide-react';
+import { tokenStore, refreshTokenStore, apiClient } from '@/api/client';
+import { Loader2, AlertCircle } from 'lucide-react';
 
 /**
  * Handles the redirect from Google OAuth.
- * C# sends: GET /auth/callback?access_token=<jwt>
- * We store the token then fetch /api/v1/users/me to get the full profile
- * (first_name, last_name, wallet_balance, etc.) rather than decoding the JWT
- * manually, which only has a subset of fields.
+ * C# sends: GET /auth/callback?access_token=<jwt>&refresh_token=<jwt>
+ *
+ * The refresh token is in the URL so it can be persisted in localStorage
+ * immediately — iOS Safari and other mobile browsers block cross-site
+ * cookies, making the httpOnly cookie approach unreliable.
+ *
+ * Fetches the full profile via /api/v1/users/me (with one retry after 4 s
+ * for cold-starting HF spaces). If both attempts fail, sends back to login.
  */
 const AuthCallback = () => {
   const [searchParams] = useSearchParams();
-  const navigate      = useNavigate();
-  const setUser       = useAuthStore((s) => s.setUser);
+  const navigate       = useNavigate();
+  const setUser        = useAuthStore((s) => s.setUser);
+  const [retrying, setRetrying] = useState(false);
+
+  const applyProfile = (profile: any) => {
+    setUser({
+      id:         profile.id,
+      email:      profile.email,
+      username:   profile.username ?? profile.email?.split('@')[0] ?? '',
+      is_buyer:   profile.is_buyer  ?? true,
+      is_seller:  profile.is_seller ?? false,
+      roles:      Array.isArray(profile.roles) ? profile.roles : [],
+      created_at: profile.created_at ?? new Date().toISOString(),
+      updated_at: profile.updated_at ?? new Date().toISOString(),
+    });
+    if (!profile.country) {
+      navigate('/complete-profile', { replace: true });
+    } else {
+      navigate('/home', { replace: true });
+    }
+  };
 
   useEffect(() => {
-    const accessToken = searchParams.get('access_token');
+    const accessToken  = searchParams.get('access_token');
+    const refreshToken = searchParams.get('refresh_token');
 
     if (!accessToken) {
       navigate('/login', { replace: true });
       return;
     }
 
-    // Store token so apiClient includes it on the /users/me call
     tokenStore.set(accessToken);
+    // Persist in localStorage immediately so reloads survive on all browsers,
+    // including iOS Safari which blocks cross-site httpOnly cookies.
+    if (refreshToken) refreshTokenStore.set(refreshToken);
 
     apiClient.get<any>('/api/v1/users/me')
-      .then((profile) => {
-        setUser({
-          id:         profile.id,
-          email:      profile.email,
-          username:   profile.username ?? profile.email?.split('@')[0] ?? '',
-          is_buyer:   profile.is_buyer  ?? true,
-          is_seller:  profile.is_seller ?? false,
-          roles:      Array.isArray(profile.roles) ? profile.roles : (profile.roles ?? 'buyer').split(','),
-          created_at: profile.created_at ?? new Date().toISOString(),
-          updated_at: profile.updated_at ?? new Date().toISOString(),
-        });
-        // Google OAuth users are created without location — redirect them
-        // to the onboarding screen so country/state/city is always set.
-        if (!profile.country) {
-          navigate('/complete-profile', { replace: true });
-        } else {
-          navigate('/home', { replace: true });
-        }
-      })
+      .then(applyProfile)
       .catch(() => {
-        // /users/me failed — fall back to a basic identity from the JWT payload
-        // so the user still lands on home rather than a broken screen.
-        try {
-          const payload = JSON.parse(atob(accessToken.split('.')[1]));
-          setUser({
-            id:         payload.sub,
-            email:      payload.email,
-            username:   payload.email?.split('@')[0] ?? '',
-            is_buyer:   payload.is_buyer === 'true' || payload.is_buyer === true,
-            is_seller:  payload.is_seller === 'true' || payload.is_seller === true,
-            roles:      typeof payload.roles === 'string' ? payload.roles.split(',') : (payload.roles ?? ['buyer']),
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          });
-        } catch {/* ignore */}
-        navigate('/home', { replace: true });
+        // First attempt failed — HF C# space may be cold-starting.
+        // Retry once after 4 s before giving up.
+        setRetrying(true);
+        setTimeout(() => {
+          apiClient.get<any>('/api/v1/users/me')
+            .then(applyProfile)
+            .catch(() => {
+              tokenStore.clear();
+              refreshTokenStore.clear();
+              navigate('/login?error=session_failed', { replace: true });
+            });
+        }, 4000);
       });
-  }, [searchParams, setUser, navigate]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="h-screen flex items-center justify-center bg-background">
-      <div className="text-center space-y-4">
+      <div className="text-center space-y-4 px-6">
         <Loader2 className="w-8 h-8 text-cobalt animate-spin mx-auto" />
-        <p className="text-sm font-medium text-muted-foreground">Signing you in…</p>
+        <p className="text-sm font-medium text-muted-foreground">
+          {retrying ? 'Server is waking up, one moment…' : 'Signing you in…'}
+        </p>
+        {retrying && (
+          <p className="text-xs text-muted-foreground flex items-center justify-center gap-1.5">
+            <AlertCircle className="w-3.5 h-3.5" />
+            This can take up to 30 s on first load
+          </p>
+        )}
       </div>
     </div>
   );

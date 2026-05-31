@@ -85,6 +85,9 @@ export default {
       },
     },
     extend: {
+      screens: {
+        'xs': '375px',  // iPhone SE / small Android
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
