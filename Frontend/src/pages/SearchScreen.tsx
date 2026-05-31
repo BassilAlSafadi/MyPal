@@ -53,9 +53,9 @@ const SearchScreen = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-background pb-nav-safe">
       {/* Header (Evolved for Desktop Density) */}
-      <div className="px-6 pt-8 pb-6 space-y-6 sticky top-0 bg-background/95 backdrop-blur-md z-30 border-b border-border/50">
+      <div className="px-4 sm:px-6 pt-4 sm:pt-8 pb-4 sm:pb-6 space-y-4 sm:space-y-6 sticky top-0 bg-background/95 backdrop-blur-md z-30 border-b border-border/50">
         <div className="max-w-[1400px] mx-auto w-full space-y-6">
           <div className="flex flex-col md:flex-row md:items-center gap-6">
             {/* Search Bar Group */}
@@ -154,9 +154,9 @@ const SearchScreen = () => {
       </div>
 
       {/* Results Workspace */}
-      <div className="px-6 py-8 max-w-[1400px] mx-auto w-full">
+      <div className="px-4 sm:px-6 py-4 sm:py-8 max-w-[1400px] mx-auto w-full">
         {isSearching && results.length === 0 ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-6">
             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => (
               <ProductCardSkeleton key={i} />
             ))}
@@ -172,7 +172,7 @@ const SearchScreen = () => {
               </div>
             </div>
             
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-6">
               {results.map((product) => (
                 <ProductCard 
                   key={product.id} 

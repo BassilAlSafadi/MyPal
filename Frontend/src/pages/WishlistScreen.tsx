@@ -11,7 +11,7 @@ const WishlistScreen = () => {
   useEffect(() => { load(); }, [load]);
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-background pb-nav-safe">
       <div className="px-4 pt-6 pb-4">
         <h1 className="text-xl font-serif font-bold text-foreground flex items-center gap-2">
           <Heart className="w-5 h-5 text-destructive" /> Smart Wishlist

@@ -34,7 +34,8 @@ const AIChatBubble = () => {
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-20 right-4 z-50 w-14 h-14 rounded-full bg-gradient-cobalt flex items-center justify-center animate-pulse-glow shadow-2xl"
+          style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom) + 0.75rem)' }}
+          className="fixed right-4 z-50 w-14 h-14 rounded-full bg-gradient-cobalt flex items-center justify-center animate-pulse-glow shadow-2xl"
         >
           <MessageCircle className="w-6 h-6 text-primary-foreground" />
         </button>
@@ -42,7 +43,10 @@ const AIChatBubble = () => {
 
       {/* Chat Panel */}
       {open && (
-        <div className="fixed bottom-20 right-4 left-4 z-50 max-w-sm ml-auto glass-card flex flex-col max-h-[60vh] glow-cobalt">
+        <div
+          style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom) + 0.75rem)' }}
+          className="fixed right-4 left-4 z-50 max-w-sm ml-auto glass-card flex flex-col max-h-[60vh] glow-cobalt"
+        >
           {/* Header */}
           <div className="flex items-center justify-between p-3 border-b border-border">
             <div className="flex items-center gap-2">

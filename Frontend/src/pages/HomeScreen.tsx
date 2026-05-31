@@ -141,19 +141,20 @@ const HomeScreen = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-background pb-nav-safe">
       {/* Header */}
       <div className="px-4 pt-6 pb-4 space-y-4 sticky top-0 bg-background/80 backdrop-blur-md z-10">
         <div className="flex items-center justify-between">
-          <LogoIcon size={56} />
+          <LogoIcon size={48} />
           <div className="flex items-center gap-2">
             <button
               onClick={() => navigate('/sell')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-cobalt text-primary-foreground text-xs font-bold shadow-sm hover:opacity-90 transition-opacity"
+              className="flex items-center gap-1.5 px-2.5 py-2 sm:px-3 sm:py-1.5 rounded-xl bg-gradient-cobalt text-primary-foreground text-xs font-bold shadow-sm hover:opacity-90 transition-opacity min-h-[36px]"
             >
-              <Tag className="w-3.5 h-3.5" /> Sell
+              <Tag className="w-3.5 h-3.5" />
+              <span className="hidden xs:inline sm:inline">Sell</span>
             </button>
-            <div className="glass-card px-3 py-1.5 flex items-center gap-1.5 shadow-sm">
+            <div className="glass-card px-2.5 py-2 sm:px-3 sm:py-1.5 flex items-center gap-1.5 shadow-sm min-h-[36px]">
               <span className="text-sm font-bold text-foreground">
                 ${balance.toFixed(2)}
               </span>
@@ -168,20 +169,24 @@ const HomeScreen = () => {
             <button
               onClick={() => setMode('internal')}
               className={cn(
-                "flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
+                "flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
                 mode === 'internal' ? "bg-white shadow-sm text-cobalt" : "text-muted-foreground hover:text-foreground"
               )}
             >
-              <Database className="w-3 h-3" /> MyPal Internal
+              <Database className="w-3 h-3" />
+              <span className="hidden sm:inline">MyPal</span>
+              <span className="sm:hidden">Internal</span>
             </button>
             <button
               onClick={() => setMode('global')}
               className={cn(
-                "flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
+                "flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
                 mode === 'global' ? "bg-white shadow-sm text-purple-600" : "text-muted-foreground hover:text-foreground"
               )}
             >
-              <Globe className="w-3 h-3" /> Global Agentic
+              <Globe className="w-3 h-3" />
+              <span className="hidden sm:inline">Global Agentic</span>
+              <span className="sm:hidden">Agentic</span>
             </button>
           </div>
 
@@ -261,9 +266,9 @@ const HomeScreen = () => {
               View All <ChevronRight className="w-4 h-4" />
             </button>
           </div>
-          <div className="flex gap-4 overflow-x-auto scrollbar-hide -mx-4 px-4">
+          <div className="flex gap-3 sm:gap-4 overflow-x-auto scrollbar-hide -mx-4 px-4">
             {trendingProducts.map((product) => (
-              <div key={product.id} className="flex-shrink-0 w-[180px]">
+              <div key={product.id} className="flex-shrink-0 w-[160px] sm:w-[180px]">
                 <ProductCard product={product} onClick={() => openProduct(product)} />
               </div>
             ))}
@@ -309,9 +314,9 @@ const HomeScreen = () => {
               ))}
             </div>
           ) : recommendedProducts.length > 0 ? (
-            <div className="flex gap-4 overflow-x-auto scrollbar-hide -mx-4 px-4">
+            <div className="flex gap-3 sm:gap-4 overflow-x-auto scrollbar-hide -mx-4 px-4">
               {recommendedProducts.map((product) => (
-                <div key={product.id} className="flex-shrink-0 w-[180px]">
+                <div key={product.id} className="flex-shrink-0 w-[160px] sm:w-[180px]">
                   <ProductCard product={product} onClick={() => openProduct(product)} />
                 </div>
               ))}
@@ -352,9 +357,9 @@ const HomeScreen = () => {
             </div>
           </div>
           {recentlyViewedProducts.length > 0 ? (
-            <div className="flex gap-4 overflow-x-auto scrollbar-hide -mx-4 px-4">
+            <div className="flex gap-3 sm:gap-4 overflow-x-auto scrollbar-hide -mx-4 px-4">
               {recentlyViewedProducts.map((product) => (
-                <div key={product.id} className="flex-shrink-0 w-[180px]">
+                <div key={product.id} className="flex-shrink-0 w-[160px] sm:w-[180px]">
                   <ProductCard product={product} onClick={() => openProduct(product)} />
                 </div>
               ))}

@@ -100,7 +100,7 @@ const SellScreen = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-28">
+    <div className="min-h-screen bg-background pb-nav-safe">
       {/* Header */}
       <div className="px-4 pt-6 pb-4 sticky top-0 bg-background/80 backdrop-blur-md z-10 border-b border-border/50">
         <div className="flex items-center gap-3">

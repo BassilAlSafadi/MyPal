@@ -106,11 +106,23 @@
 @layer base {
   * {
     @apply border-border;
+    /* Improve tap responsiveness on mobile */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    /* Prevent font size inflation on mobile orientation change */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Inter', system-ui, sans-serif;
+    /* Enable momentum scrolling on iOS */
+    -webkit-overflow-scrolling: touch;
+    /* Prevent horizontal overflow */
+    overflow-x: hidden;
   }
 
   h1, h2, h3 {
@@ -134,6 +146,33 @@
 
   .glow-cobalt {
     box-shadow: 0 0 20px hsl(var(--cobalt) / 0.3), 0 0 60px hsl(var(--cobalt) / 0.1);
+  }
+
+  /* Safe area utilities for iPhone notch / Dynamic Island / home indicator */
+  .pb-safe {
+    padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+  }
+  .pb-nav-safe {
+    /* Bottom nav height (72px) + safe area inset */
+    padding-bottom: max(6rem, calc(6rem + env(safe-area-inset-bottom)));
+  }
+  .bottom-nav-height {
+    height: max(4.5rem, calc(4.5rem + env(safe-area-inset-bottom)));
+  }
+
+  /* Ensure minimum touch target size */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Scrollbar hide for all platforms */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 
   .ai-response-copy {
