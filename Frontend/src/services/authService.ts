@@ -12,8 +12,12 @@ export const authService = {
    * Initiates Google OAuth login flow by redirecting to the Gateway.
    */
   loginWithGoogle: () => {
-    // Direct redirect to the C# Auth through the Gateway
-    window.location.href = `${env.API_GATEWAY}/api/v1/auth/google/login`;
+    // Go directly to the C# API for Google OAuth — bypassing the Supabase proxy.
+    // OAuth requires cookies to stay on the same domain throughout the flow
+    // (state cookie set on login must be readable on callback). Going through
+    // the proxy breaks this because the cookie domain would change.
+    const csharpBase = 'https://solly2005-mypal-csharp.hf.space';
+    window.location.href = `${csharpBase}/api/auth/google/login`;
   },
 
   /**
