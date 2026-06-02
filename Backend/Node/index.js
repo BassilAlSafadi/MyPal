@@ -18,12 +18,22 @@ app.use(cors());
 app.use(bodyParser.json({ limit: '1mb' }));
 
 const PORT = process.env.PORT || process.env.NODE_ORCHESTRATOR_PORT || 5003;
-const MONGO_URL = process.env.MONGO_URL || process.env.MONGO_URI || 'mongodb://localhost:27017/mypal_audit';
+const MONGO_URL = process.env.MONGO_URL || process.env.MONGO_URI;
 
-mongoose
-  .connect(MONGO_URL)
-  .then(() => console.log('Connected to MongoDB audit store'))
-  .catch((err) => console.error('MongoDB connection error:', err));
+// Chat threads + AI feature history now live in Postgres (see agenticRoutes).
+// MongoDB is only used for optional audit logs (AgentExecutionTrace, validation
+// logs). Disable command buffering so that, when no Mongo is configured, those
+// optional writes fail instantly instead of hanging 10s and stalling requests.
+mongoose.set('bufferCommands', false);
+
+if (MONGO_URL) {
+  mongoose
+    .connect(MONGO_URL)
+    .then(() => console.log('Connected to MongoDB audit store'))
+    .catch((err) => console.error('MongoDB connection error:', err));
+} else {
+  console.log('No MONGO_URL configured — audit logging disabled (chat + history use Postgres)');
+}
 
 app.use('/swagger', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use('/', agenticRoutes);

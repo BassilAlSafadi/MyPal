@@ -71,7 +71,9 @@ func Load() (*GatewayConfig, error) {
 		Timeout: GatewayTimeouts{
 			CSharpAPI:        getEnvDuration("TIMEOUT_CSHARP_MS", 5000),
 			GoSupport:        getEnvDuration("TIMEOUT_GO_SUPPORT_MS", 5000),
-			NodeOrchestrator: getEnvDuration("TIMEOUT_NODE_ORCH_MS", 90000),
+			// Pro deep-search runs the full 14-node agentic workflow (~60-90s),
+			// so the Node budget is generous to avoid cutting off a near-complete run.
+			NodeOrchestrator: getEnvDuration("TIMEOUT_NODE_ORCH_MS", 180000),
 			ProdBERT:         getEnvDuration("TIMEOUT_PRODBERT_MS", 3000),
 			Default:          getEnvDuration("TIMEOUT_DEFAULT_MS", 10000),
 		},
