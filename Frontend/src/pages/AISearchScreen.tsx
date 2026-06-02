@@ -177,11 +177,12 @@ const SearchPanel = () => {
   const textareaRef      = useRef<HTMLTextAreaElement>(null);
 
   // Thread state
-  const [threadId, setThreadId]         = useState<string | null>(null);
-  const [threadTitle, setThreadTitle]   = useState('New chat');
-  const [threadList, setThreadList]     = useState<ChatThread[]>([]);
-  const [showThreads, setShowThreads]   = useState(false);
-  const [threadLoading, setThreadLoading] = useState(false);
+  const [threadId, setThreadId]           = useState<string | null>(null);
+  const [threadTitle, setThreadTitle]     = useState('New chat');
+  const [threadList, setThreadList]       = useState<ChatThread[]>([]);
+  const [showThreads, setShowThreads]     = useState(false);
+  const [threadListLoading, setThreadListLoading] = useState(false); // only for drawer
+  const [switchingThread, setSwitchingThread]     = useState(false); // only for thread switch
 
   // Quota
   const { data: quotaData, refetch: refetchQuota } = useAsync<Quota>(
@@ -221,44 +222,54 @@ const SearchPanel = () => {
     return () => { if (thoughtTimerRef.current) clearInterval(thoughtTimerRef.current); };
   }, [isTyping, model]);
 
-  // Bootstrap threads on mount
+  // Bootstrap threads silently in background — never blocks the input
   useEffect(() => {
     (async () => {
-      setThreadLoading(true);
       try {
         const threads = await searchService.listThreads();
         setThreadList(threads);
         if (threads.length > 0) {
-          await loadThread(threads[0]._id, threads[0].title);
-        } else {
-          await createNewThread();
+          // Silently pre-load most recent thread messages without blocking UI
+          const thread = await searchService.getThread(threads[0]._id);
+          setThreadId(thread._id);
+          setThreadTitle(thread.title || 'New chat');
+          setMessages((thread.messages || []).map(serverMsgToLocal));
         }
-      } catch { /* non-fatal */ }
-      finally { setThreadLoading(false); }
+        // If no threads exist, leave threadId null — it will be created on first send
+      } catch { /* non-fatal — user can still chat */ }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadThread(id: string, title: string) {
-    setThreadLoading(true);
+    setSwitchingThread(true);
+    setShowThreads(false);
+    setMessages([]); // clear immediately so user sees thread switching
     try {
       const thread = await searchService.getThread(id);
       setThreadId(thread._id);
       setThreadTitle(thread.title || 'New chat');
       setMessages((thread.messages || []).map(serverMsgToLocal));
     } catch { /* ignore */ }
-    finally { setThreadLoading(false); setShowThreads(false); }
+    finally { setSwitchingThread(false); }
   }
 
   async function createNewThread() {
+    setShowThreads(false);
+    setMessages([]);
+    setThreadTitle('New chat');
+    setThreadId(null); // will be created on first send
+  }
+
+  // Called on first send when no thread exists yet
+  async function ensureThread(): Promise<string | null> {
+    if (threadId) return threadId;
     try {
       const thread = await searchService.createThread();
       setThreadList(prev => [thread, ...prev]);
       setThreadId(thread._id);
-      setThreadTitle('New chat');
-      setMessages([]);
-    } catch { /* ignore */ }
-    setShowThreads(false);
+      return thread._id;
+    } catch { return null; }
   }
 
   async function deleteThread(id: string, e: React.MouseEvent) {
@@ -280,7 +291,7 @@ const SearchPanel = () => {
   const handleSend = async () => {
     const query = input.trim();
     const requestModel = selectedModelRef.current;
-    if (!query || isTyping || !threadId) return;
+    if (!query || isTyping) return;
     if (requestModel === 'pro' && proQuotaFull) return;
 
     setMessages(p => [...p, {
@@ -296,17 +307,20 @@ const SearchPanel = () => {
         id: r.id, title: r.title, category: r.category,
       }));
 
+      const activeThreadId = await ensureThread();
+      if (!activeThreadId) throw new Error('Could not create thread');
+
       const { message } = await searchService.sendThreadMessage(
-        threadId, query, requestModel, internalPayload,
+        activeThreadId, query, requestModel, internalPayload,
       );
 
       if (requestModel === 'pro') refetchQuota();
 
-      // Auto-update thread title after first message
-      if (messages.length === 0) {
+      // Auto-title on first message of a new chat
+      if (threadTitle === 'New chat') {
         const newTitle = query.slice(0, 55);
         setThreadTitle(newTitle);
-        setThreadList(prev => prev.map(t => t._id === threadId ? { ...t, title: newTitle, updated_at: new Date().toISOString() } : t));
+        setThreadList(prev => prev.map(t => t._id === activeThreadId ? { ...t, title: newTitle, updated_at: new Date().toISOString() } : t));
       }
 
       const mypalProducts = (message.internal_products && message.internal_products.length > 0
@@ -332,9 +346,9 @@ const SearchPanel = () => {
 
       // Bubble thread to top of list
       setThreadList(prev => {
-        const t = prev.find(x => x._id === threadId);
+        const t = prev.find(x => x._id === activeThreadId);
         if (!t) return prev;
-        return [{ ...t, updated_at: new Date().toISOString() }, ...prev.filter(x => x._id !== threadId)];
+        return [{ ...t, updated_at: new Date().toISOString() }, ...prev.filter(x => x._id !== activeThreadId)];
       });
     } catch {
       setMessages(p => [...p, {
@@ -376,7 +390,7 @@ const SearchPanel = () => {
     });
   };
 
-  const canSend = input.trim().length > 0 && !isTyping && !!threadId && !(model === 'pro' && proQuotaFull);
+  const canSend = input.trim().length > 0 && !isTyping && !(model === 'pro' && proQuotaFull);
 
   return (
     <div className="flex flex-col h-full relative bg-background">
@@ -426,7 +440,9 @@ const SearchPanel = () => {
             </button>
 
             <div className="flex-1 overflow-y-auto py-2 space-y-0.5 px-2">
-              {threadList.length === 0 ? (
+              {threadListLoading ? (
+                <div className="flex justify-center py-8"><Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /></div>
+              ) : threadList.length === 0 ? (
                 <p className="text-xs text-muted-foreground text-center py-8">No conversations yet</p>
               ) : threadList.map(t => (
                 <button
@@ -459,7 +475,7 @@ const SearchPanel = () => {
 
       {/* ── Messages area ───────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto">
-        {threadLoading ? (
+        {switchingThread ? (
           <div className="flex items-center justify-center h-full">
             <Loader2 className="w-5 h-5 animate-spin text-cobalt-light" />
           </div>
