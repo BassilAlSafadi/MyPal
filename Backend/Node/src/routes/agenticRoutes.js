@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { Pool } = require('pg');
-const { AgentExecutionTrace, AgenticValidationLog, ChatThread, AIFeatureHistory } = require('../../models');
+const { AgentExecutionTrace, AgenticValidationLog } = require('../../models');
 const { createLLMProvider } = require('../providers/llmProvider');
 const { runMyPalAgenticWorkflow, runReliableDeepSearch } = require('../agents/agenticSearch');
 const { fastSearchFeature } = require('../agents/fastSearch');
@@ -155,6 +155,34 @@ async function fetchCatalog(limit = 60) {
   } catch (_) {
     return [];
   }
+}
+
+// ── Feature history (Postgres) ────────────────────────────────────────────────
+
+const UUID_VALID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Persist one AI-feature call. Non-blocking, best-effort. */
+async function saveFeatureHistory(userId, feature, input, output) {
+  const pool = getPool();
+  if (!pool || !userId || !UUID_VALID.test(String(userId)) || !output) return;
+  try {
+    await pool.query(
+      `INSERT INTO public.ai_feature_history (user_id, feature, input, output)
+       VALUES ($1, $2, $3::jsonb, $4)`,
+      [userId, feature, JSON.stringify(input || {}), String(output)],
+    );
+    // Keep only the 20 most recent per (user, feature)
+    await pool.query(
+      `DELETE FROM public.ai_feature_history
+       WHERE user_id = $1 AND feature = $2
+         AND id NOT IN (
+           SELECT id FROM public.ai_feature_history
+           WHERE user_id = $1 AND feature = $2
+           ORDER BY created_at DESC LIMIT 20
+         )`,
+      [userId, feature],
+    );
+  } catch (_) { /* non-fatal — history is best-effort */ }
 }
 
 // ── Health / root ─────────────────────────────────────────────────────────────
@@ -349,7 +377,7 @@ router.post('/ai/translate', async (req, res) => {
   try {
     const result = await translateText(req.body.target_language, req.body.text);
     if (userId && result) {
-      AIFeatureHistory.create({ user_id: userId, feature: 'translate', input: { text: req.body.text, target_language: req.body.target_language }, output: result }).catch(() => {});
+      saveFeatureHistory(userId, 'translate', { text: req.body.text, target_language: req.body.target_language }, result);
     }
     return res.json({ result, trace_id: traceId });
   } catch (err) {
@@ -363,7 +391,7 @@ router.post('/ai/summarize', async (req, res) => {
   try {
     const result = await summarizeContent(req.body.text || '', req.body.length || 'medium');
     if (userId && result) {
-      AIFeatureHistory.create({ user_id: userId, feature: 'summarize', input: { text: req.body.text, length: req.body.length || 'medium' }, output: result }).catch(() => {});
+      saveFeatureHistory(userId, 'summarize', { text: req.body.text, length: req.body.length || 'medium' }, result);
     }
     return res.json({ result, trace_id: traceId });
   } catch (err) {
@@ -381,7 +409,7 @@ router.post('/ai/product/ask', async (req, res) => {
       persona: req.body.persona,
     });
     if (userId && result) {
-      AIFeatureHistory.create({ user_id: userId, feature: 'ask-product', input: { question: req.body.question, product_data: req.body.product_data, persona: req.body.persona }, output: result }).catch(() => {});
+      saveFeatureHistory(userId, 'ask-product', { question: req.body.question, product_data: req.body.product_data, persona: req.body.persona }, result);
     }
     return res.json({ result, trace_id: traceId });
   } catch (err) {
@@ -406,7 +434,7 @@ router.post('/ai/recommend', async (req, res) => {
     const recommender = new MyPalProdRecommender();
     const result = await recommender.recommend(req.body.persona || '', req.body.catalog || []);
     if (userId && result) {
-      AIFeatureHistory.create({ user_id: userId, feature: 'recommend', input: { persona: req.body.persona }, output: typeof result === 'string' ? result : JSON.stringify(result) }).catch(() => {});
+      saveFeatureHistory(userId, 'recommend', { persona: req.body.persona }, typeof result === 'string' ? result : JSON.stringify(result));
     }
     return res.json({ result, trace_id: traceId });
   } catch (err) {
@@ -482,7 +510,7 @@ router.post('/ai/seller/analyze', async (req, res) => {
     const analytics = new MyPalSellerAnalytics();
     const result = await analytics.analyze(req.body.products);
     if (userId && result) {
-      AIFeatureHistory.create({ user_id: userId, feature: 'seller', input: { products: req.body.products }, output: typeof result === 'string' ? result : JSON.stringify(result) }).catch(() => {});
+      saveFeatureHistory(userId, 'seller', { products: req.body.products }, typeof result === 'string' ? result : JSON.stringify(result));
     }
     return res.json({ result, trace_id: traceId });
   } catch (err) {
@@ -629,18 +657,33 @@ router.get('/seller-report/:sellerId', async (req, res) => {
   });
 });
 
-// ── Chat thread management ────────────────────────────────────────────────────
+// ── Chat thread management (Postgres) ─────────────────────────────────────────
+//
+// Threads + embedded messages live in public.chat_threads (messages = JSONB array).
+// The frontend expects Mongo-style `_id` / message `_id` fields, so rows are
+// aliased to `_id` and each message gets a generated `_id` on write.
+
+function withMessageIds(messages) {
+  return (Array.isArray(messages) ? messages : []).map((m) => ({
+    _id: m._id || crypto.randomUUID(),
+    ...m,
+  }));
+}
 
 // Create a new thread
 router.post('/ai/threads', async (req, res) => {
   const userId = req.headers['x-user-id'];
   if (!userId) return res.status(401).json({ error: 'unauthorized' });
+  const pool = getPool();
+  if (!pool) return res.status(503).json({ error: 'thread storage unavailable' });
   try {
-    const thread = await ChatThread.create({
-      user_id: userId,
-      title: 'New chat',
-    });
-    return res.json({ thread });
+    const r = await pool.query(
+      `INSERT INTO public.chat_threads (user_id, title)
+       VALUES ($1, 'New chat')
+       RETURNING id AS _id, title, messages, created_at, updated_at`,
+      [userId],
+    );
+    return res.json({ thread: r.rows[0] });
   } catch (err) {
     return res.status(500).json({ error: String(err) });
   }
@@ -650,13 +693,18 @@ router.post('/ai/threads', async (req, res) => {
 router.get('/ai/threads', async (req, res) => {
   const userId = req.headers['x-user-id'];
   if (!userId) return res.status(401).json({ error: 'unauthorized' });
+  const pool = getPool();
+  if (!pool) return res.json({ threads: [] });
   try {
-    const threads = await ChatThread.find({ user_id: userId })
-      .select('_id title created_at updated_at')
-      .sort({ updated_at: -1 })
-      .limit(50)
-      .lean();
-    return res.json({ threads });
+    const r = await pool.query(
+      `SELECT id AS _id, title, created_at, updated_at
+       FROM public.chat_threads
+       WHERE user_id = $1
+       ORDER BY updated_at DESC
+       LIMIT 50`,
+      [userId],
+    );
+    return res.json({ threads: r.rows });
   } catch (err) {
     return res.status(500).json({ error: String(err) });
   }
@@ -666,10 +714,18 @@ router.get('/ai/threads', async (req, res) => {
 router.get('/ai/threads/:id', async (req, res) => {
   const userId = req.headers['x-user-id'];
   if (!userId) return res.status(401).json({ error: 'unauthorized' });
+  if (!UUID_VALID.test(String(req.params.id))) return res.status(404).json({ error: 'not found' });
+  const pool = getPool();
+  if (!pool) return res.status(503).json({ error: 'thread storage unavailable' });
   try {
-    const thread = await ChatThread.findOne({ _id: req.params.id, user_id: userId }).lean();
-    if (!thread) return res.status(404).json({ error: 'not found' });
-    return res.json({ thread });
+    const r = await pool.query(
+      `SELECT id AS _id, title, messages, created_at, updated_at
+       FROM public.chat_threads
+       WHERE id = $1 AND user_id = $2`,
+      [req.params.id, userId],
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: 'not found' });
+    return res.json({ thread: r.rows[0] });
   } catch (err) {
     return res.status(500).json({ error: String(err) });
   }
@@ -679,41 +735,59 @@ router.get('/ai/threads/:id', async (req, res) => {
 router.delete('/ai/threads/:id', async (req, res) => {
   const userId = req.headers['x-user-id'];
   if (!userId) return res.status(401).json({ error: 'unauthorized' });
+  if (!UUID_VALID.test(String(req.params.id))) return res.json({ ok: true });
+  const pool = getPool();
+  if (!pool) return res.json({ ok: true });
   try {
-    await ChatThread.deleteOne({ _id: req.params.id, user_id: userId });
+    await pool.query(
+      `DELETE FROM public.chat_threads WHERE id = $1 AND user_id = $2`,
+      [req.params.id, userId],
+    );
     return res.json({ ok: true });
   } catch (err) {
     return res.status(500).json({ error: String(err) });
   }
 });
 
-// Send a message in a thread — runs Fast or Pro, saves both turns
+// Send a message in a thread — runs Fast or Pro, persists both turns
 router.post('/ai/threads/:id/messages', async (req, res) => {
   const userId = req.headers['x-user-id'];
   if (!userId) return res.status(401).json({ error: 'unauthorized' });
+  if (!UUID_VALID.test(String(req.params.id))) return res.status(404).json({ error: 'not found' });
 
   const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
   const { query, model = 'fast', internal_products = [] } = req.body;
   if (!query || !query.trim()) return res.status(400).json({ error: 'query is required' });
 
+  const pool = getPool();
+  if (!pool) return res.status(503).json({ error: 'thread storage unavailable', trace_id: traceId });
+
   try {
-    const thread = await ChatThread.findOne({ _id: req.params.id, user_id: userId });
-    if (!thread) return res.status(404).json({ error: 'not found' });
+    // Load the thread (ownership-checked)
+    const r = await pool.query(
+      `SELECT id, title, messages FROM public.chat_threads WHERE id = $1 AND user_id = $2`,
+      [req.params.id, userId],
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: 'not found', trace_id: traceId });
+
+    const row = r.rows[0];
+    const messages = withMessageIds(row.messages);
+    const isFirstMessage = messages.length === 0;
 
     // Append user message
-    thread.messages.push({ role: 'user', content: query.trim(), internal_products });
+    messages.push({
+      _id: crypto.randomUUID(),
+      role: 'user',
+      content: query.trim(),
+      internal_products,
+      created_at: new Date().toISOString(),
+    });
 
-    // Auto-title from first user message
-    if (thread.messages.length === 1) {
-      thread.title = query.trim().slice(0, 60);
-    }
-
-    // Run the appropriate workflow
+    // Run the workflow
     let aiContent = '';
     let aiProducts = [];
 
     if (model === 'pro') {
-      // Log for quota (fire-and-forget)
       logSearch(userId, query);
       const quota = await checkAndConsumeQuota(userId).catch(() => ({ allowed: true }));
       if (!quota.allowed) {
@@ -730,28 +804,49 @@ router.post('/ai/threads/:id/messages', async (req, res) => {
     }
 
     // Append assistant message
-    thread.messages.push({ role: 'assistant', content: aiContent, model, products: aiProducts, internal_products: internal_products.slice(0, 5) });
-    thread.updated_at = new Date();
-    await thread.save();
+    const assistantMsg = {
+      _id: crypto.randomUUID(),
+      role: 'assistant',
+      content: aiContent,
+      model,
+      products: aiProducts,
+      internal_products: internal_products.slice(0, 5),
+      created_at: new Date().toISOString(),
+    };
+    messages.push(assistantMsg);
 
-    const lastMsg = thread.messages[thread.messages.length - 1];
-    return res.json({ message: lastMsg, thread_id: thread._id, trace_id: traceId });
+    const newTitle = isFirstMessage ? query.trim().slice(0, 60) : row.title;
+
+    await pool.query(
+      `UPDATE public.chat_threads
+       SET messages = $1::jsonb, title = $2, updated_at = NOW()
+       WHERE id = $3 AND user_id = $4`,
+      [JSON.stringify(messages), newTitle, req.params.id, userId],
+    );
+
+    return res.json({ message: assistantMsg, thread_id: req.params.id, trace_id: traceId });
   } catch (err) {
     return res.status(500).json({ error: String(err), trace_id: traceId });
   }
 });
 
-// ── Feature history ───────────────────────────────────────────────────────────
+// ── Feature history (Postgres) ────────────────────────────────────────────────
 
 router.get('/ai/history/:feature', async (req, res) => {
   const userId = req.headers['x-user-id'];
   if (!userId) return res.status(401).json({ error: 'unauthorized' });
+  const pool = getPool();
+  if (!pool) return res.json({ history: [] });
   try {
-    const history = await AIFeatureHistory.find({ user_id: userId, feature: req.params.feature })
-      .sort({ created_at: -1 })
-      .limit(20)
-      .lean();
-    return res.json({ history });
+    const r = await pool.query(
+      `SELECT id AS _id, feature, input, output, created_at
+       FROM public.ai_feature_history
+       WHERE user_id = $1 AND feature = $2
+       ORDER BY created_at DESC
+       LIMIT 20`,
+      [userId, req.params.feature],
+    );
+    return res.json({ history: r.rows });
   } catch (err) {
     return res.status(500).json({ error: String(err) });
   }
