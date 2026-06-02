@@ -16,6 +16,13 @@ node_modules.old*/
 # Go binaries
 Backend/Go/gateway-bin
 Backend/Go/gateway-bin~
+Backend/Go/gateway-new
+Backend/Go/gateway-new.exe
+Backend/Go/gateway
+Backend/Go/embed.exe
+Backend/Go/main.exe
+Backend/Go/scripts.exe
+Backend/Go/support
 
 # IDE / run configs
 .run/
@@ -25,3 +32,5 @@ Backend/Go/gateway-bin~
 .env.*
 !.env.example
 .infisical.json
+
+.vercel
