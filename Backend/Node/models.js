@@ -91,6 +91,37 @@ const reconciliationLogSchema = new mongoose.Schema({
   created_at: { type: Date, default: Date.now }
 });
 
+// ── Persistent chat threads (Fast + Pro) ──────────────────────────────────────
+
+const chatMessageSchema = new mongoose.Schema({
+  role: { type: String, enum: ['user', 'assistant'], required: true },
+  content: { type: String, required: true },
+  model: { type: String, enum: ['fast', 'pro'] },           // set on assistant messages
+  products: { type: mongoose.Schema.Types.Mixed, default: [] },          // external web products
+  internal_products: { type: mongoose.Schema.Types.Mixed, default: [] }, // MyPal catalog hits
+  created_at: { type: Date, default: Date.now },
+}, { _id: true });
+
+const chatThreadSchema = new mongoose.Schema({
+  user_id: { type: String, required: true, index: true },
+  title: { type: String, default: 'New chat' },
+  messages: [chatMessageSchema],
+  created_at: { type: Date, default: Date.now },
+  updated_at: { type: Date, default: Date.now },
+});
+chatThreadSchema.index({ user_id: 1, updated_at: -1 });
+
+// ── AI feature input/output history ───────────────────────────────────────────
+
+const aiFeatureHistorySchema = new mongoose.Schema({
+  user_id: { type: String, required: true, index: true },
+  feature: { type: String, required: true, index: true }, // translate | summarize | ask-product | recommend | seller
+  input: { type: mongoose.Schema.Types.Mixed, required: true },
+  output: { type: String, required: true },
+  created_at: { type: Date, default: Date.now },
+});
+aiFeatureHistorySchema.index({ user_id: 1, feature: 1, created_at: -1 });
+
 module.exports = {
   AgentExecutionTrace: mongoose.model('AgentExecutionTrace', agentExecutionTraceSchema),
   AgenticValidationLog: mongoose.model('AgenticValidationLog', agenticValidationLogSchema),
@@ -101,5 +132,7 @@ module.exports = {
   EventReplayLog: mongoose.model('EventReplayLog', eventReplayLogSchema),
   ConsumerFailureLog: mongoose.model('ConsumerFailureLog', consumerFailureLogSchema),
   CompensationExecutionLog: mongoose.model('CompensationExecutionLog', compensationExecutionLogSchema),
-  ReconciliationLog: mongoose.model('ReconciliationLog', reconciliationLogSchema)
+  ReconciliationLog: mongoose.model('ReconciliationLog', reconciliationLogSchema),
+  ChatThread: mongoose.model('ChatThread', chatThreadSchema),
+  AIFeatureHistory: mongoose.model('AIFeatureHistory', aiFeatureHistorySchema),
 };

@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { Pool } = require('pg');
-const { AgentExecutionTrace, AgenticValidationLog } = require('../../models');
+const { AgentExecutionTrace, AgenticValidationLog, ChatThread, AIFeatureHistory } = require('../../models');
 const { createLLMProvider } = require('../providers/llmProvider');
 const { runMyPalAgenticWorkflow, runReliableDeepSearch } = require('../agents/agenticSearch');
 const { fastSearchFeature } = require('../agents/fastSearch');
@@ -321,9 +321,7 @@ router.post('/ai/deep-search', async (req, res) => {
   if (req.body.query) logSearch(userId, req.body.query);
 
   try {
-    const result = req.body?.full_workflow
-      ? await runMyPalAgenticWorkflow(req.body || {})
-      : await runReliableDeepSearch(req.body || {});
+    const result = await runMyPalAgenticWorkflow(req.body || {});
     return res.json({ result: result.state.final_output, state: result.state, reasoning_steps: result.trace, trace_id: traceId });
   } catch (err) {
     return res.status(500).json({ error: String(err), trace_id: traceId });
@@ -347,8 +345,12 @@ router.post('/ai/fast-search', async (req, res) => {
 
 router.post('/ai/translate', async (req, res) => {
   const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
+  const userId = req.headers['x-user-id'];
   try {
     const result = await translateText(req.body.target_language, req.body.text);
+    if (userId && result) {
+      AIFeatureHistory.create({ user_id: userId, feature: 'translate', input: { text: req.body.text, target_language: req.body.target_language }, output: result }).catch(() => {});
+    }
     return res.json({ result, trace_id: traceId });
   } catch (err) {
     return res.status(500).json({ error: String(err), trace_id: traceId });
@@ -357,8 +359,12 @@ router.post('/ai/translate', async (req, res) => {
 
 router.post('/ai/summarize', async (req, res) => {
   const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
+  const userId = req.headers['x-user-id'];
   try {
     const result = await summarizeContent(req.body.text || '', req.body.length || 'medium');
+    if (userId && result) {
+      AIFeatureHistory.create({ user_id: userId, feature: 'summarize', input: { text: req.body.text, length: req.body.length || 'medium' }, output: result }).catch(() => {});
+    }
     return res.json({ result, trace_id: traceId });
   } catch (err) {
     return res.status(500).json({ error: String(err), trace_id: traceId });
@@ -367,12 +373,16 @@ router.post('/ai/summarize', async (req, res) => {
 
 router.post('/ai/product/ask', async (req, res) => {
   const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
+  const userId = req.headers['x-user-id'];
   try {
     const result = await askProductExpert({
       question: req.body.question,
       product_data: req.body.product_data,
       persona: req.body.persona,
     });
+    if (userId && result) {
+      AIFeatureHistory.create({ user_id: userId, feature: 'ask-product', input: { question: req.body.question, product_data: req.body.product_data, persona: req.body.persona }, output: result }).catch(() => {});
+    }
     return res.json({ result, trace_id: traceId });
   } catch (err) {
     return res.status(500).json({ error: String(err), trace_id: traceId });
@@ -391,9 +401,13 @@ router.post('/ai/scraped/clean', async (req, res) => {
 
 router.post('/ai/recommend', async (req, res) => {
   const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
+  const userId = req.headers['x-user-id'];
   try {
     const recommender = new MyPalProdRecommender();
     const result = await recommender.recommend(req.body.persona || '', req.body.catalog || []);
+    if (userId && result) {
+      AIFeatureHistory.create({ user_id: userId, feature: 'recommend', input: { persona: req.body.persona }, output: typeof result === 'string' ? result : JSON.stringify(result) }).catch(() => {});
+    }
     return res.json({ result, trace_id: traceId });
   } catch (err) {
     return res.status(500).json({ error: String(err), trace_id: traceId });
@@ -460,12 +474,16 @@ router.get('/ai/recommend/me', async (req, res) => {
 
 router.post('/ai/seller/analyze', async (req, res) => {
   const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
+  const userId = req.headers['x-user-id'];
   try {
     if (!Array.isArray(req.body.products)) {
       return res.status(400).json({ error: 'products array required', trace_id: traceId });
     }
     const analytics = new MyPalSellerAnalytics();
     const result = await analytics.analyze(req.body.products);
+    if (userId && result) {
+      AIFeatureHistory.create({ user_id: userId, feature: 'seller', input: { products: req.body.products }, output: typeof result === 'string' ? result : JSON.stringify(result) }).catch(() => {});
+    }
     return res.json({ result, trace_id: traceId });
   } catch (err) {
     return res.status(500).json({ error: String(err), trace_id: traceId });
@@ -609,6 +627,134 @@ router.get('/seller-report/:sellerId', async (req, res) => {
     sentimentScore: 0.72,
     createdAt: new Date().toISOString(),
   });
+});
+
+// ── Chat thread management ────────────────────────────────────────────────────
+
+// Create a new thread
+router.post('/ai/threads', async (req, res) => {
+  const userId = req.headers['x-user-id'];
+  if (!userId) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    const thread = await ChatThread.create({
+      user_id: userId,
+      title: 'New chat',
+    });
+    return res.json({ thread });
+  } catch (err) {
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
+// List threads (most recent first, no messages)
+router.get('/ai/threads', async (req, res) => {
+  const userId = req.headers['x-user-id'];
+  if (!userId) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    const threads = await ChatThread.find({ user_id: userId })
+      .select('_id title created_at updated_at')
+      .sort({ updated_at: -1 })
+      .limit(50)
+      .lean();
+    return res.json({ threads });
+  } catch (err) {
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
+// Get a single thread with all messages
+router.get('/ai/threads/:id', async (req, res) => {
+  const userId = req.headers['x-user-id'];
+  if (!userId) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    const thread = await ChatThread.findOne({ _id: req.params.id, user_id: userId }).lean();
+    if (!thread) return res.status(404).json({ error: 'not found' });
+    return res.json({ thread });
+  } catch (err) {
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
+// Delete a thread
+router.delete('/ai/threads/:id', async (req, res) => {
+  const userId = req.headers['x-user-id'];
+  if (!userId) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    await ChatThread.deleteOne({ _id: req.params.id, user_id: userId });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
+// Send a message in a thread — runs Fast or Pro, saves both turns
+router.post('/ai/threads/:id/messages', async (req, res) => {
+  const userId = req.headers['x-user-id'];
+  if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+  const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
+  const { query, model = 'fast', internal_products = [] } = req.body;
+  if (!query || !query.trim()) return res.status(400).json({ error: 'query is required' });
+
+  try {
+    const thread = await ChatThread.findOne({ _id: req.params.id, user_id: userId });
+    if (!thread) return res.status(404).json({ error: 'not found' });
+
+    // Append user message
+    thread.messages.push({ role: 'user', content: query.trim(), internal_products });
+
+    // Auto-title from first user message
+    if (thread.messages.length === 1) {
+      thread.title = query.trim().slice(0, 60);
+    }
+
+    // Run the appropriate workflow
+    let aiContent = '';
+    let aiProducts = [];
+
+    if (model === 'pro') {
+      // Log for quota (fire-and-forget)
+      logSearch(userId, query);
+      const quota = await checkAndConsumeQuota(userId).catch(() => ({ allowed: true }));
+      if (!quota.allowed) {
+        return res.status(429).json({ error: 'quota_exceeded', message: 'Daily Pro limit reached (3/day). Resets at midnight.', trace_id: traceId });
+      }
+      const result = await runMyPalAgenticWorkflow({ query: query.trim(), internal_products });
+      aiContent = result.state.final_output || '';
+      aiProducts = result.state.product_json?.products || [];
+    } else {
+      logSearch(userId, query);
+      const { text, products } = await fastSearchFeature(query.trim(), internal_products);
+      aiContent = text || '';
+      aiProducts = products || [];
+    }
+
+    // Append assistant message
+    thread.messages.push({ role: 'assistant', content: aiContent, model, products: aiProducts, internal_products: internal_products.slice(0, 5) });
+    thread.updated_at = new Date();
+    await thread.save();
+
+    const lastMsg = thread.messages[thread.messages.length - 1];
+    return res.json({ message: lastMsg, thread_id: thread._id, trace_id: traceId });
+  } catch (err) {
+    return res.status(500).json({ error: String(err), trace_id: traceId });
+  }
+});
+
+// ── Feature history ───────────────────────────────────────────────────────────
+
+router.get('/ai/history/:feature', async (req, res) => {
+  const userId = req.headers['x-user-id'];
+  if (!userId) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    const history = await AIFeatureHistory.find({ user_id: userId, feature: req.params.feature })
+      .sort({ created_at: -1 })
+      .limit(20)
+      .lean();
+    return res.json({ history });
+  } catch (err) {
+    return res.status(500).json({ error: String(err) });
+  }
 });
 
 module.exports = router;
