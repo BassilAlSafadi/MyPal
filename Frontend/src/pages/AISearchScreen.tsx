@@ -16,6 +16,7 @@ import ProductImage from '@/components/ProductImage';
 import { LinkThumb } from '@/components/LinkThumb';
 import { Markdown } from '@/components/Markdown';
 import { PRODUCT_IMAGE_FALLBACK } from '@/lib/productImage';
+import { toast } from 'sonner';
 
 // ── Notebook thinking thoughts (matches notebook's print statements) ──────────
 
@@ -192,12 +193,25 @@ const SearchPanel = () => {
   const proQuotaFull = quota.remaining <= 0;
 
   const selectModel = useCallback((m: SearchModel) => {
-    if (m === 'pro' && proQuotaFull) return;
+    if (m === 'pro' && proQuotaFull) {
+      toast.info("You've used all 3 Pro searches today. Pro resets at midnight.");
+      return;
+    }
     selectedModelRef.current = m;
     setModel(m);
   }, [proQuotaFull]);
 
   useEffect(() => { selectedModelRef.current = model; }, [model]);
+
+  // If the Pro quota runs out while Pro is selected, fall back to Fast so the
+  // user can't fire a Pro request that would be rejected (and waste tokens).
+  useEffect(() => {
+    if (proQuotaFull && model === 'pro') {
+      setModel('fast');
+      selectedModelRef.current = 'fast';
+      toast.info('Pro quota finished — switched to Fast. Pro resets at midnight.');
+    }
+  }, [proQuotaFull, model]);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isTyping]);
 
   // Auto-resize textarea
@@ -290,9 +304,17 @@ const SearchPanel = () => {
 
   const handleSend = async () => {
     const query = input.trim();
-    const requestModel = selectedModelRef.current;
+    let requestModel = selectedModelRef.current;
     if (!query || isTyping) return;
-    if (requestModel === 'pro' && proQuotaFull) return;
+
+    // Pro quota exhausted: downgrade to Fast and notify, rather than firing a
+    // Pro request that the backend would reject after burning the workflow.
+    if (requestModel === 'pro' && proQuotaFull) {
+      requestModel = 'fast';
+      selectedModelRef.current = 'fast';
+      setModel('fast');
+      toast.info('Pro quota finished — running this with Fast instead. Pro resets at midnight.');
+    }
 
     setMessages(p => [...p, {
       id: `u-${Date.now()}`, type: 'user', content: query,
