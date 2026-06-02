@@ -18,39 +18,30 @@ import { Markdown } from '@/components/Markdown';
 import { PRODUCT_IMAGE_FALLBACK } from '@/lib/productImage';
 import { toast } from 'sonner';
 
-// ── Notebook thinking thoughts (matches notebook's print statements) ──────────
+// ── Thinking steps — describe the process in plain language only.
+// Deliberately no provider/model/API names so the user sees what's happening,
+// not which services power it.
 
 const FAST_THOUGHTS = [
-  'Running fast search via Tavily...',
-  'Checking MyPal catalog for matches...',
-  'Reviewing prices and options...',
-  'Composing answer with GPT model...',
+  'Understanding your question...',
+  'Searching the web and the MyPal catalog...',
+  'Reviewing the best matches...',
+  'Writing your answer...',
 ];
 
 const PRO_THOUGHTS = [
-  '🛡️ Security Guard — screening request...',
-  '🦙 Llama Maverick — orchestrating intent...',
-  '🔍 Scout Unified Intake — extracting product specs...',
-  '🔵 Cohere — grounding facts and context...',
-  '🟢 GPT-OSS — converting facts to structured JSON...',
-  '🔭 Scout Lead Search — generating search queries...',
-  '🌐 Tavily + SerpAPI — executing web search...',
-  '✅ GPT-OSS — extracting products + calculating costs...',
-  '☰ Auditor — verifying accuracy and URLs...',
-  '🦙 Llama Mediator — deciding next step...',
-  '🔵 Cohere — synthesizing final facts...',
-  'Φ Phi-4 — formatting output JSON...',
-  '✨ GPT-4.1 — composing final report...',
+  'Understanding your request...',
+  'Checking the MyPal catalog...',
+  'Planning a deeper search...',
+  'Searching across the web...',
+  'Gathering prices and details...',
+  'Comparing the options...',
+  'Verifying the findings...',
+  'Double-checking accuracy and links...',
+  'Putting together your answer...',
 ];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-
-const PRO_LIVE_THOUGHTS = [
-  'Checking MyPal catalog matches...',
-  'Running Pro live web search...',
-  'Filtering source links...',
-  'Preparing clickable product cards...',
-];
 
 type AIFeature = 'search' | 'translate' | 'summarize' | 'ask-product' | 'recommend' | 'sellers';
 
@@ -883,7 +874,7 @@ const SummarizePanel = () => {
     <FeaturePanel
       icon={<FileText className="w-5 h-5 text-cobalt-light" />}
       title="Text Summary"
-      subtitle="Summarize product descriptions and reviews using Cohere-command-a"
+      subtitle="Summarize product descriptions and reviews into a quick read"
     >
       <div className="space-y-3">
         <div className="space-y-1.5">
@@ -1084,7 +1075,7 @@ const RecommendPanel = () => {
     <FeaturePanel
       icon={<Star className="w-5 h-5 text-cobalt-light" />}
       title="Recommendation System"
-      subtitle="ProdBERT embedding + GPT re-ranking — personalised from your searches, orders & wishlist"
+      subtitle="Personalised picks from your searches, orders & wishlist"
     >
       <div className="space-y-3">
         {/* Mode selector */}
@@ -1229,7 +1220,7 @@ const SellerAnalyticsPanel = () => {
     <FeaturePanel
       icon={<BarChart3 className="w-5 h-5 text-cobalt-light" />}
       title="AI Seller Performance"
-      subtitle="Map-Reduce pipeline: GPT-OSS maps reviews → Cohere-command-r+ generates seller identity report"
+      subtitle="Turn customer reviews into a clear seller performance report"
     >
       <div className="space-y-4">
         {products.map((prod, pi) => (
