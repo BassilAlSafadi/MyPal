@@ -3,6 +3,36 @@ import { SearchResponse, SemanticSearchResult } from '../../../shared/contracts/
 
 export type SearchModel = 'fast' | 'pro';
 
+// ── Chat thread types ────────────────────────────────────────────────────────
+
+export interface ChatMessage {
+  _id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  model?: SearchModel;
+  products?: ExternalProduct[];
+  internal_products?: Array<{ id: string; title: string; category?: string }>;
+  created_at: string;
+}
+
+export interface ChatThread {
+  _id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  messages?: ChatMessage[];
+}
+
+// ── Feature history types ────────────────────────────────────────────────────
+
+export interface FeatureHistoryItem {
+  _id: string;
+  feature: string;
+  input: Record<string, unknown>;
+  output: string;
+  created_at: string;
+}
+
 export interface ExternalProduct {
   name?: string;
   title?: string;
@@ -161,5 +191,48 @@ export const searchService = {
   ): Promise<string> => {
     const r = await apiClient.post<{ result: string }>('/api/v1/ai/seller/analyze', { products });
     return r.result || '';
+  },
+
+  // ── Chat thread management ───────────────────────────────────────────────
+  createThread: async (): Promise<ChatThread> => {
+    const r = await apiClient.post<{ thread: ChatThread }>('/api/v1/ai/threads', {});
+    return r.thread;
+  },
+
+  listThreads: async (): Promise<ChatThread[]> => {
+    const r = await apiClient.get<{ threads: ChatThread[] }>('/api/v1/ai/threads');
+    return r.threads || [];
+  },
+
+  getThread: async (id: string): Promise<ChatThread> => {
+    const r = await apiClient.get<{ thread: ChatThread }>(`/api/v1/ai/threads/${id}`);
+    return r.thread;
+  },
+
+  deleteThread: async (id: string): Promise<void> => {
+    await apiClient.delete(`/api/v1/ai/threads/${id}`);
+  },
+
+  sendThreadMessage: async (
+    threadId: string,
+    query: string,
+    model: SearchModel,
+    internalProducts: Array<{ id: string; title: string; category?: string }> = [],
+  ): Promise<{ message: ChatMessage; thread_id: string }> => {
+    return apiClient.post(`/api/v1/ai/threads/${threadId}/messages`, {
+      query,
+      model,
+      internal_products: internalProducts,
+    });
+  },
+
+  // ── Feature history ───────────────────────────────────────────────────────
+  getFeatureHistory: async (feature: string): Promise<FeatureHistoryItem[]> => {
+    try {
+      const r = await apiClient.get<{ history: FeatureHistoryItem[] }>(`/api/v1/ai/history/${feature}`);
+      return r.history || [];
+    } catch {
+      return [];
+    }
   },
 };

@@ -13,6 +13,7 @@ interface AuthState {
   user: UserIdentity | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isRestoringSession: boolean;
   error: string | null;
   personaProfile: PersonaProfile | null;
   needsOnboarding: boolean;
@@ -21,6 +22,7 @@ interface AuthState {
   loginWithGoogle: () => void;
   logout: () => Promise<void>;
   setUser: (user: UserIdentity | null) => void;
+  setRestoringSession: (v: boolean) => void;
   completeOnboarding: (profile: PersonaProfile) => void;
   clearError: () => void;
 }
@@ -31,11 +33,13 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       isAuthenticated: false,
       isLoading: false,
+      isRestoringSession: false,
       error: null,
       personaProfile: null,
       needsOnboarding: false,
 
       setUser: (user) => set({ user, isAuthenticated: !!user }),
+      setRestoringSession: (v) => set({ isRestoringSession: v }),
       completeOnboarding: (profile) => set({ personaProfile: profile, needsOnboarding: false }),
 
       login: async (email, password) => {
@@ -58,7 +62,7 @@ export const useAuthStore = create<AuthState>()(
         try {
           await authService.signOut();
         } finally {
-          set({ user: null, isAuthenticated: false, isLoading: false });
+          set({ user: null, isAuthenticated: false, isLoading: false, isRestoringSession: false });
         }
       },
 
@@ -66,6 +70,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'mypal-auth',
+      // isRestoringSession is intentionally excluded — it's transient, not persisted
       partialize: (state) => ({
         user: state.user,
         isAuthenticated: state.isAuthenticated,

@@ -1,14 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  Send, Sparkles, RotateCcw, Zap, ShoppingBag, ExternalLink, Globe,
+  Send, Sparkles, Zap, ShoppingBag, ExternalLink, Globe,
   Check, Languages, FileText, MessageSquare, Star, BarChart3, Loader2,
-  Plus, Trash2, ChevronDown,
+  Plus, Trash2, ChevronDown, History, X, Clock, ChevronRight,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import BottomNav from '@/components/BottomNav';
 import { cn } from '@/lib/utils';
-import { searchService, SearchModel, ExternalProduct } from '@/services/searchService';
+import { searchService, SearchModel, ExternalProduct, ChatThread, ChatMessage, FeatureHistoryItem } from '@/services/searchService';
 import { productService } from '@/services/productService';
 import { useAsync } from '@/hooks/useAsync';
 import { ProductPreviewDrawer, ProductPreview } from '@/components/ProductPreviewDrawer';
@@ -131,303 +131,491 @@ const AISearchScreen = () => {
   );
 };
 
-// ── Search Panel (Fast + Pro / Deep) ──────────────────────────────────────────
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function relativeTime(iso: string) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function serverMsgToLocal(msg: ChatMessage, idx: number): Message {
+  return {
+    id: msg._id || `msg-${idx}`,
+    type: msg.role === 'user' ? 'user' : 'ai',
+    content: msg.content,
+    model: msg.model,
+    mypalProducts: Array.isArray(msg.internal_products) && msg.internal_products.length > 0
+      ? msg.internal_products as { id: string; title: string; category?: string }[]
+      : undefined,
+    products: Array.isArray(msg.products) && msg.products.length > 0
+      ? msg.products as ExternalProduct[]
+      : undefined,
+    suggestions: msg.role === 'assistant'
+      ? ['Tell me more', 'Show cheaper alternatives', 'Compare options']
+      : undefined,
+    timestamp: new Date(msg.created_at || Date.now()),
+  };
+}
+
+// ── Search Panel — LLM-app style chat with persistent threads ─────────────────
 
 const SearchPanel = () => {
-  const [messages, setMessages]           = useState<Message[]>([]);
-  const [input, setInput]                 = useState('');
-  const [isTyping, setIsTyping]           = useState(false);
-  const [model, setModel]                 = useState<SearchModel>('fast');
-  const selectedModelRef                  = useRef<SearchModel>('fast');
+  const [messages, setMessages]     = useState<Message[]>([]);
+  const [input, setInput]           = useState('');
+  const [isTyping, setIsTyping]     = useState(false);
+  const [model, setModel]           = useState<SearchModel>('fast');
+  const selectedModelRef            = useRef<SearchModel>('fast');
   const [selectedProduct, setSelectedProduct] = useState<ProductPreview | null>(null);
   const [visibleThoughts, setVisibleThoughts] = useState<string[]>([]);
-  const thoughtTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const messagesEndRef  = useRef<HTMLDivElement>(null);
+  const thoughtTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+  const messagesEndRef   = useRef<HTMLDivElement>(null);
+  const textareaRef      = useRef<HTMLTextAreaElement>(null);
 
-  // Server-side quota (refreshed on mount + after each deep search)
+  // Thread state
+  const [threadId, setThreadId]         = useState<string | null>(null);
+  const [threadTitle, setThreadTitle]   = useState('New chat');
+  const [threadList, setThreadList]     = useState<ChatThread[]>([]);
+  const [showThreads, setShowThreads]   = useState(false);
+  const [threadLoading, setThreadLoading] = useState(false);
+
+  // Quota
   const { data: quotaData, refetch: refetchQuota } = useAsync<Quota>(
-    () => searchService.getDeepSearchQuota(),
-    [],
+    () => searchService.getDeepSearchQuota(), [],
   );
   const quota: Quota = quotaData ?? { used: 0, limit: 3, remaining: 3, resets_at: '' };
   const proQuotaFull = quota.remaining <= 0;
 
-  const selectModel = useCallback((nextModel: SearchModel) => {
-    if (nextModel === 'pro' && proQuotaFull) return;
-    selectedModelRef.current = nextModel;
-    setModel(nextModel);
+  const selectModel = useCallback((m: SearchModel) => {
+    if (m === 'pro' && proQuotaFull) return;
+    selectedModelRef.current = m;
+    setModel(m);
   }, [proQuotaFull]);
 
-  useEffect(() => {
-    selectedModelRef.current = model;
-  }, [model]);
+  useEffect(() => { selectedModelRef.current = model; }, [model]);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isTyping]);
 
+  // Auto-resize textarea
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+  }, [input]);
 
+  // Thinking animation
   useEffect(() => {
     if (thoughtTimerRef.current) clearInterval(thoughtTimerRef.current);
     if (!isTyping) { setVisibleThoughts([]); return; }
-
-    const thoughts = model === 'pro' ? PRO_LIVE_THOUGHTS : FAST_THOUGHTS;
+    const thoughts = model === 'pro' ? PRO_THOUGHTS : FAST_THOUGHTS;
     let idx = 0;
     setVisibleThoughts([thoughts[0]]);
     idx = 1;
-
     thoughtTimerRef.current = setInterval(() => {
-      if (idx < thoughts.length) {
-        setVisibleThoughts((prev) => [...prev, thoughts[idx]].slice(-5));
-        idx += 1;
-      }
-    }, model === 'pro' ? 2000 : 1400);
-
+      if (idx < thoughts.length) { setVisibleThoughts(p => [...p, thoughts[idx]].slice(-6)); idx++; }
+    }, model === 'pro' ? 1800 : 1200);
     return () => { if (thoughtTimerRef.current) clearInterval(thoughtTimerRef.current); };
   }, [isTyping, model]);
+
+  // Bootstrap threads on mount
+  useEffect(() => {
+    (async () => {
+      setThreadLoading(true);
+      try {
+        const threads = await searchService.listThreads();
+        setThreadList(threads);
+        if (threads.length > 0) {
+          await loadThread(threads[0]._id, threads[0].title);
+        } else {
+          await createNewThread();
+        }
+      } catch { /* non-fatal */ }
+      finally { setThreadLoading(false); }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function loadThread(id: string, title: string) {
+    setThreadLoading(true);
+    try {
+      const thread = await searchService.getThread(id);
+      setThreadId(thread._id);
+      setThreadTitle(thread.title || 'New chat');
+      setMessages((thread.messages || []).map(serverMsgToLocal));
+    } catch { /* ignore */ }
+    finally { setThreadLoading(false); setShowThreads(false); }
+  }
+
+  async function createNewThread() {
+    try {
+      const thread = await searchService.createThread();
+      setThreadList(prev => [thread, ...prev]);
+      setThreadId(thread._id);
+      setThreadTitle('New chat');
+      setMessages([]);
+    } catch { /* ignore */ }
+    setShowThreads(false);
+  }
+
+  async function deleteThread(id: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    try {
+      await searchService.deleteThread(id);
+      const updated = threadList.filter(t => t._id !== id);
+      setThreadList(updated);
+      if (id === threadId) {
+        if (updated.length > 0) {
+          await loadThread(updated[0]._id, updated[0].title);
+        } else {
+          await createNewThread();
+        }
+      }
+    } catch { /* ignore */ }
+  }
 
   const handleSend = async () => {
     const query = input.trim();
     const requestModel = selectedModelRef.current;
-    if (!query || isTyping) return;
+    if (!query || isTyping || !threadId) return;
     if (requestModel === 'pro' && proQuotaFull) return;
 
-    const userMsg: Message = {
-      id: `msg-${Date.now()}`,
-      type: 'user',
-      content: query,
-      model: requestModel,
-      timestamp: new Date(),
-    };
-    setMessages((p) => [...p, userMsg]);
+    setMessages(p => [...p, {
+      id: `u-${Date.now()}`, type: 'user', content: query,
+      model: requestModel, timestamp: new Date(),
+    }]);
     setInput('');
     setIsTyping(true);
 
     try {
       const internalResults = await searchService.performInternalSearch(query);
-      const aiResult = await searchService.performAISearch(query, requestModel, internalResults);
+      const internalPayload = internalResults.slice(0, 5).map(r => ({
+        id: r.id, title: r.title, category: r.category,
+      }));
+
+      const { message } = await searchService.sendThreadMessage(
+        threadId, query, requestModel, internalPayload,
+      );
 
       if (requestModel === 'pro') refetchQuota();
 
-      const mypalProducts = internalResults.slice(0, 5).map((r) => ({
-        id: r.id, title: r.title, category: r.category, score: r.score,
-      }));
+      // Auto-update thread title after first message
+      if (messages.length === 0) {
+        const newTitle = query.slice(0, 55);
+        setThreadTitle(newTitle);
+        setThreadList(prev => prev.map(t => t._id === threadId ? { ...t, title: newTitle, updated_at: new Date().toISOString() } : t));
+      }
 
-      const fallbackText = internalResults.length > 0
+      const mypalProducts = (message.internal_products && message.internal_products.length > 0
+        ? message.internal_products
+        : internalPayload) as { id: string; title: string; category?: string }[];
+
+      const fallback = internalResults.length > 0
         ? `Found ${internalResults.length} matching product${internalResults.length === 1 ? '' : 's'} in MyPal for "${query}".`
         : `No exact MyPal match for "${query}". Try Pro for a deeper web search.`;
 
-      setMessages((p) => [...p, {
-        id: `msg-ai-${Date.now()}`,
+      setMessages(p => [...p, {
+        id: message._id || `a-${Date.now()}`,
         type: 'ai',
-        content: aiResult.text || fallbackText,
+        content: message.content || fallback,
         model: requestModel,
         mypalProducts: mypalProducts.length > 0 ? mypalProducts : undefined,
-        products: aiResult.products.length > 0 ? aiResult.products : undefined,
-        suggestions: ['Tell me more about the first one', 'Show cheaper alternatives', 'Compare these options'],
-        timestamp: new Date(),
+        products: Array.isArray(message.products) && message.products.length > 0
+          ? message.products as ExternalProduct[]
+          : undefined,
+        suggestions: ['Tell me more', 'Show cheaper alternatives', 'Compare options'],
+        timestamp: new Date(message.created_at || Date.now()),
       }]);
-    } catch (error) {
-      console.error('[AI Search] Search failed:', error);
-      setMessages((p) => [...p, {
-        id: `msg-err-${Date.now()}`, type: 'ai',
-        content: 'Search failed. Please try again.',
-        model: requestModel,
-        timestamp: new Date(),
+
+      // Bubble thread to top of list
+      setThreadList(prev => {
+        const t = prev.find(x => x._id === threadId);
+        if (!t) return prev;
+        return [{ ...t, updated_at: new Date().toISOString() }, ...prev.filter(x => x._id !== threadId)];
+      });
+    } catch {
+      setMessages(p => [...p, {
+        id: `err-${Date.now()}`, type: 'ai', content: 'Search failed. Please try again.',
+        model: requestModel, timestamp: new Date(),
       }]);
     } finally {
       setIsTyping(false);
     }
   };
 
-  const openMyPalProduct = async (product: NonNullable<Message['mypalProducts']>[number]) => {
+  const openMyPalProduct = async (product: { id: string; title: string; category?: string; score?: number }) => {
     const preview: ProductPreview = {
-      id: product.id,
-      title: product.title,
-      price: 0,
-      image: PRODUCT_IMAGE_FALLBACK,
-      source: 'marketplace',
-      seller: 'MyPal Verified',
-      rating: product.score ?? 4.8,
+      id: product.id, title: product.title, price: 0,
+      image: PRODUCT_IMAGE_FALLBACK, source: 'marketplace',
+      seller: 'MyPal Verified', rating: product.score ?? 4.8,
       category: product.category,
-      description: product.category
-        ? `A matching MyPal catalog listing in ${product.category}. Open it here to review details and add it to your cart.`
-        : 'A matching MyPal catalog listing. Open it here to review details and add it to your cart.',
+      description: 'A matching MyPal catalog listing. Open it here to review details and add it to your cart.',
     };
     setSelectedProduct(preview);
-
     try {
-      const fullProduct = await productService.get(product.id);
-      setSelectedProduct({
-        ...fullProduct,
-        source: 'marketplace',
-        seller: fullProduct.seller ?? preview.seller,
-      });
-    } catch {
-      // Keep the immediate preview if the detail endpoint is unavailable.
-    }
+      const full = await productService.get(product.id);
+      setSelectedProduct({ ...full, source: 'marketplace', seller: full.seller ?? preview.seller });
+    } catch { /* keep preview */ }
   };
 
   const openExternalProduct = (product: ExternalProduct, index: number, messageId: string) => {
     const price = Number(product.total_cost ?? product.price ?? 0);
     setSelectedProduct({
-      id: `external-${messageId}-${index}`,
+      id: `ext-${messageId}-${index}`,
       title: product.name ?? product.title ?? 'External product',
       price: Number.isFinite(price) ? price : 0,
       image: product.thumbnail ?? PRODUCT_IMAGE_FALLBACK,
-      source: 'external',
-      seller: product.source ?? 'External seller',
-      rating: 4.6,
+      source: 'external', seller: product.source ?? 'External seller', rating: 4.6,
       url: product.source_url,
       description: product.key_specs?.length
         ? product.key_specs.join('\n')
-        : 'External web finding from the AI search. Open the seller page to verify the final price, stock, and shipping details.',
+        : 'External web finding. Open the seller page to verify price, stock, and shipping.',
     });
   };
 
+  const canSend = input.trim().length > 0 && !isTyping && !!threadId && !(model === 'pro' && proQuotaFull);
+
   return (
-    <div className="flex flex-col h-full">
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center py-12">
-            <div className="w-16 h-16 rounded-full bg-cobalt-light/10 flex items-center justify-center mb-4">
-              <Sparkles className="w-8 h-8 text-cobalt-light" />
+    <div className="flex flex-col h-full relative bg-background">
+
+      {/* ── Chat header ─────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-background/95 backdrop-blur-sm flex-shrink-0">
+        <button
+          onClick={() => setShowThreads(true)}
+          className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+          title="Chat history"
+        >
+          <History className="w-4 h-4" />
+        </button>
+        <p className="flex-1 text-sm font-medium text-foreground truncate">{threadTitle}</p>
+        <button
+          onClick={createNewThread}
+          className="flex items-center gap-1 text-xs text-cobalt-light hover:text-cobalt-light/80 font-medium px-2 py-1 rounded-lg hover:bg-cobalt-light/10 transition-colors"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          New
+        </button>
+      </div>
+
+      {/* ── Thread history drawer ────────────────────────────────────────────── */}
+      {showThreads && (
+        <div className="absolute inset-0 z-30 flex" onClick={() => setShowThreads(false)}>
+          {/* backdrop */}
+          <div className="absolute inset-0 bg-background/60 backdrop-blur-sm" />
+          {/* drawer */}
+          <div
+            className="relative z-10 w-72 max-w-[85vw] bg-background border-r border-border flex flex-col h-full shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <p className="text-sm font-semibold text-foreground">Chat history</p>
+              <button onClick={() => setShowThreads(false)} className="p-1 rounded-md text-muted-foreground hover:text-foreground">
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <h2 className="text-xl font-serif font-bold mb-2">Ask me anything</h2>
-            <p className="text-sm text-muted-foreground max-w-xs mb-6">
-              Fast: quick answer. Pro Live: MyPal catalog plus live web results.
+
+            <button
+              onClick={createNewThread}
+              className="mx-3 mt-3 mb-1 flex items-center gap-2 px-3 py-2.5 rounded-xl border border-dashed border-cobalt-light/40 text-cobalt-light text-sm font-medium hover:bg-cobalt-light/10 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              New chat
+            </button>
+
+            <div className="flex-1 overflow-y-auto py-2 space-y-0.5 px-2">
+              {threadList.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-8">No conversations yet</p>
+              ) : threadList.map(t => (
+                <button
+                  key={t._id}
+                  onClick={() => loadThread(t._id, t.title)}
+                  className={cn(
+                    'w-full flex items-start gap-2 px-3 py-2.5 rounded-xl text-left transition-colors group',
+                    t._id === threadId
+                      ? 'bg-cobalt-light/10 text-foreground'
+                      : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
+                  )}
+                >
+                  <MessageSquare className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium truncate leading-tight">{t.title || 'New chat'}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">{relativeTime(t.updated_at)}</p>
+                  </div>
+                  <button
+                    onClick={e => deleteThread(t._id, e)}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 text-muted-foreground hover:text-destructive transition-all flex-shrink-0"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Messages area ───────────────────────────────────────────────────── */}
+      <div className="flex-1 overflow-y-auto">
+        {threadLoading ? (
+          <div className="flex items-center justify-center h-full">
+            <Loader2 className="w-5 h-5 animate-spin text-cobalt-light" />
+          </div>
+        ) : messages.length === 0 ? (
+          /* Empty state */
+          <div className="flex flex-col items-center justify-center h-full text-center px-6 py-12">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-cobalt flex items-center justify-center mb-5 shadow-lg">
+              <Sparkles className="w-7 h-7 text-white" />
+            </div>
+            <h2 className="text-xl font-serif font-bold text-foreground mb-1">Ask MyPal AI</h2>
+            <p className="text-sm text-muted-foreground mb-8 max-w-xs leading-relaxed">
+              Search products, compare prices, get recommendations — Fast or Pro deep search.
             </p>
-            <div className="flex flex-wrap gap-2 justify-center max-w-sm">
-              {['Best laptop under $1000', 'Wireless earbuds for running', 'Gift ideas for gamers'].map((s) => (
-                <button key={s} onClick={() => setInput(s)}
-                  className="text-xs px-3 py-1.5 glass-card text-muted-foreground hover:text-foreground transition-colors">
-                  {s}
+            <div className="flex flex-col gap-2 w-full max-w-xs">
+              {['Best laptop under $1,000', 'Wireless earbuds for running', 'Gift ideas for gamers'].map(s => (
+                <button
+                  key={s}
+                  onClick={() => { setInput(s); textareaRef.current?.focus(); }}
+                  className="flex items-center gap-3 w-full text-left px-4 py-3 rounded-xl border border-border hover:border-cobalt-light/40 hover:bg-cobalt-light/5 transition-all group"
+                >
+                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-cobalt-light flex-shrink-0 transition-colors" />
+                  <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">{s}</span>
                 </button>
               ))}
             </div>
           </div>
         ) : (
-          <>
-            {messages.map((msg) => (
-              <div key={msg.id} className={cn('flex', msg.type === 'user' ? 'justify-end' : 'justify-start')}>
-                {msg.type === 'user' ? (
-                  <div className="bg-gradient-cobalt text-primary-foreground px-4 py-2.5 rounded-2xl rounded-br-sm max-w-[80%]">
-                    <p className="text-sm">{msg.content}</p>
-                    {msg.model && (
-                      <div className="flex items-center gap-1 mt-1 opacity-60">
-                        {msg.model === 'fast' ? <Zap className="w-2.5 h-2.5" /> : <Sparkles className="w-2.5 h-2.5" />}
-                        <span className="text-[10px] capitalize">{msg.model}</span>
-                      </div>
-                    )}
+          <div className="py-6 space-y-6 max-w-3xl mx-auto px-4">
+            {messages.map(msg => (
+              <div key={msg.id} className={cn('flex gap-3', msg.type === 'user' ? 'justify-end' : 'justify-start items-start')}>
+
+                {/* AI avatar */}
+                {msg.type === 'ai' && (
+                  <div className="w-7 h-7 rounded-lg bg-gradient-cobalt flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm">
+                    {msg.model === 'pro'
+                      ? <Sparkles className="w-3.5 h-3.5 text-white" />
+                      : <Zap className="w-3.5 h-3.5 text-white" />
+                    }
                   </div>
-                ) : (
-                  <div className="glass-card p-4 rounded-2xl rounded-bl-sm max-w-[92%] space-y-4">
-                    {msg.model && (
-                      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-cobalt-light">
-                        {msg.model === 'pro' ? <Sparkles className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
-                        <span>{msg.model === 'pro' ? 'Pro live search' : 'Fast search'}</span>
-                      </div>
-                    )}
-                    <Markdown content={msg.content} />
-                    {msg.mypalProducts && msg.mypalProducts.length > 0 && (
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-2 h-2 rounded-full bg-cobalt-light" />
-                          <p className="text-xs font-semibold text-cobalt-light">Available on MyPal</p>
-                        </div>
-                        <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-4 px-4">
-                          {msg.mypalProducts.map((p) => (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onClick={() => openMyPalProduct(p)}
-                              className="flex-shrink-0 w-36 bg-secondary rounded-xl overflow-hidden text-left transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cobalt-light"
-                            >
-                              <div className="relative aspect-square bg-cobalt-light/10 flex items-center justify-center">
-                                <ShoppingBag className="w-8 h-8 text-cobalt-light/50" />
-                                <div className="absolute top-1.5 left-1.5 flex items-center gap-1 bg-background/90 backdrop-blur-sm rounded-full px-1.5 py-0.5">
-                                  <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                                  <span className="text-[9px] text-green-600 font-semibold">In Store</span>
-                                </div>
+                )}
+
+                <div className={cn('flex flex-col gap-3', msg.type === 'user' ? 'items-end max-w-[80%]' : 'items-start flex-1 min-w-0')}>
+                  {/* model badge for AI */}
+                  {msg.type === 'ai' && msg.model && (
+                    <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      {msg.model === 'pro' ? 'Pro search' : 'Fast search'}
+                    </span>
+                  )}
+
+                  {/* Bubble / content */}
+                  {msg.type === 'user' ? (
+                    <div className="bg-cobalt-light text-white px-4 py-3 rounded-2xl rounded-br-sm text-sm leading-relaxed">
+                      {msg.content}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-foreground leading-relaxed w-full">
+                      <Markdown content={msg.content} />
+                    </div>
+                  )}
+
+                  {/* MyPal products */}
+                  {msg.type === 'ai' && msg.mypalProducts && msg.mypalProducts.length > 0 && (
+                    <div className="w-full space-y-2">
+                      <p className="text-[10px] font-bold text-cobalt-light uppercase tracking-widest flex items-center gap-1.5">
+                        <div className="w-1.5 h-1.5 rounded-full bg-cobalt-light" />
+                        Available on MyPal
+                      </p>
+                      <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-4 px-4 pb-1">
+                        {msg.mypalProducts.map(p => (
+                          <button key={p.id} type="button" onClick={() => openMyPalProduct(p)}
+                            className="flex-shrink-0 w-36 bg-secondary rounded-xl overflow-hidden text-left hover:-translate-y-0.5 hover:shadow-md transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cobalt-light">
+                            <div className="relative aspect-square bg-cobalt-light/10 flex items-center justify-center">
+                              <ShoppingBag className="w-8 h-8 text-cobalt-light/40" />
+                              <div className="absolute top-1.5 left-1.5 flex items-center gap-1 bg-background/90 backdrop-blur-sm rounded-full px-1.5 py-0.5">
+                                <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                                <span className="text-[9px] text-green-600 font-semibold">In Store</span>
                               </div>
-                              <div className="p-2">
-                                <p className="text-xs text-foreground line-clamp-2 leading-tight mb-1">{p.title}</p>
-                                {p.category && <p className="text-[10px] text-muted-foreground">{p.category}</p>}
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {msg.products && msg.products.length > 0 && (
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-1.5">
-                          <Globe className="w-3 h-3 text-muted-foreground" />
-                          <p className="text-xs font-medium text-muted-foreground">Web Findings</p>
-                        </div>
-                        <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-1 px-1">
-                          {msg.products.slice(0, 8).map((p, i) => (
-                            <button
-                              key={i}
-                              type="button"
-                              onClick={() => openExternalProduct(p, i, msg.id)}
-                              className="flex-shrink-0 w-36 bg-secondary rounded-xl overflow-hidden text-left transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cobalt-light"
-                            >
-                              <div className="relative aspect-square bg-background/50">
-                                {p.thumbnail ? (
-                                  <ProductImage src={p.thumbnail} alt={p.name ?? p.title} width={300} height={300} className="w-full h-full object-contain" loading="lazy" />
-                                ) : p.source_url ? (
-                                  <LinkThumb url={p.source_url} label={p.source} />
-                                ) : null}
-                              </div>
-                              <div className="p-2.5">
-                                <p className="text-xs text-foreground line-clamp-2 leading-tight mb-1">{p.name ?? p.title}</p>
-                                <p className="text-sm font-bold">
-                                  {p.total_cost != null || p.price != null ? `${p.currency ?? '$'}${p.total_cost ?? p.price}` : '—'}
-                                </p>
-                                {p.source && <p className="text-[10px] text-muted-foreground truncate">{p.source}</p>}
-                                <span className="flex items-center gap-1 mt-1.5 text-[10px] text-cobalt-light">
-                                  <ExternalLink className="w-2.5 h-2.5" /> Open details
-                                </span>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {msg.suggestions && (
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        {msg.suggestions.map((s) => (
-                          <button key={s} onClick={() => setInput(s)}
-                            className="text-xs px-3 py-1.5 bg-cobalt-light/10 text-cobalt-light rounded-full hover:bg-cobalt-light/20 transition-colors">
-                            {s}
+                            </div>
+                            <div className="p-2">
+                              <p className="text-xs text-foreground line-clamp-2 leading-tight mb-1">{p.title}</p>
+                              {p.category && <p className="text-[10px] text-muted-foreground">{p.category}</p>}
+                            </div>
                           </button>
                         ))}
                       </div>
-                    )}
-                  </div>
-                )}
+                    </div>
+                  )}
+
+                  {/* Web findings */}
+                  {msg.type === 'ai' && msg.products && msg.products.length > 0 && (
+                    <div className="w-full space-y-2">
+                      <p className="text-[10px] font-medium text-muted-foreground flex items-center gap-1.5">
+                        <Globe className="w-3 h-3" /> Web findings
+                      </p>
+                      <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-4 px-4 pb-1">
+                        {msg.products.slice(0, 8).map((p, i) => (
+                          <button key={i} type="button" onClick={() => openExternalProduct(p, i, msg.id)}
+                            className="flex-shrink-0 w-36 bg-secondary rounded-xl overflow-hidden text-left hover:-translate-y-0.5 hover:shadow-md transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cobalt-light">
+                            <div className="relative aspect-square bg-background/50">
+                              {p.thumbnail
+                                ? <ProductImage src={p.thumbnail} alt={p.name ?? p.title} width={300} height={300} className="w-full h-full object-contain" loading="lazy" />
+                                : p.source_url ? <LinkThumb url={p.source_url} label={p.source} /> : null}
+                            </div>
+                            <div className="p-2.5">
+                              <p className="text-xs text-foreground line-clamp-2 leading-tight mb-1">{p.name ?? p.title}</p>
+                              <p className="text-sm font-bold">
+                                {p.total_cost != null || p.price != null ? `${p.currency ?? '$'}${p.total_cost ?? p.price}` : '—'}
+                              </p>
+                              {p.source && <p className="text-[10px] text-muted-foreground truncate">{p.source}</p>}
+                              <span className="flex items-center gap-1 mt-1.5 text-[10px] text-cobalt-light">
+                                <ExternalLink className="w-2.5 h-2.5" /> Open details
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Follow-up suggestions */}
+                  {msg.type === 'ai' && msg.suggestions && (
+                    <div className="flex flex-wrap gap-2">
+                      {msg.suggestions.map(s => (
+                        <button key={s} onClick={() => { setInput(s); textareaRef.current?.focus(); }}
+                          className="text-xs px-3 py-1.5 rounded-full border border-border hover:border-cobalt-light/50 hover:bg-cobalt-light/5 text-muted-foreground hover:text-foreground transition-all">
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
 
-            {/* Thinking stream */}
+            {/* Thinking indicator */}
             {isTyping && (
-              <div className="flex justify-start">
-                <div className="glass-card px-4 py-3 rounded-2xl rounded-bl-sm max-w-[85%] space-y-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-cobalt-light animate-pulse" />
-                    <span className="text-xs font-semibold text-cobalt-light">
-                      {model === 'pro' ? 'Running Pro live search...' : 'Thinking'}
-                    </span>
-                  </div>
+              <div className="flex gap-3 items-start">
+                <div className="w-7 h-7 rounded-lg bg-gradient-cobalt flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm">
+                  {model === 'pro'
+                    ? <Sparkles className="w-3.5 h-3.5 text-white animate-pulse" />
+                    : <Zap className="w-3.5 h-3.5 text-white animate-pulse" />
+                  }
+                </div>
+                <div className="flex-1 space-y-2 pt-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    {model === 'pro' ? 'Pro search' : 'Fast search'}
+                  </span>
                   <div className="space-y-1.5">
                     {visibleThoughts.map((thought, i) => {
-                      const isActive = i === visibleThoughts.length - 1;
+                      const active = i === visibleThoughts.length - 1;
                       return (
-                        <div key={i} className={cn('flex items-start gap-2 text-xs transition-all', isActive ? 'text-foreground' : 'text-muted-foreground opacity-60')}>
-                          {isActive
-                            ? <div className="mt-[3px] w-3 h-3 flex-shrink-0 flex items-center justify-center"><div className="w-1.5 h-1.5 rounded-full bg-cobalt-light animate-pulse" /></div>
-                            : <Check className="mt-[1px] w-3 h-3 flex-shrink-0 text-green-500" />}
+                        <div key={i} className={cn('flex items-center gap-2 text-xs transition-all duration-300',
+                          active ? 'text-foreground' : 'text-muted-foreground opacity-50')}>
+                          {active
+                            ? <div className="w-1.5 h-1.5 rounded-full bg-cobalt-light animate-pulse flex-shrink-0" />
+                            : <Check className="w-3 h-3 text-green-500 flex-shrink-0" />}
                           <span>{thought}</span>
                         </div>
                       );
@@ -436,55 +624,127 @@ const SearchPanel = () => {
                 </div>
               </div>
             )}
+
             <div ref={messagesEndRef} />
-          </>
+          </div>
         )}
       </div>
 
-      {/* Input area */}
-      <div className="px-4 py-3 border-t border-border bg-background space-y-2">
+      {/* ── Input area ──────────────────────────────────────────────────────── */}
+      <div className="flex-shrink-0 border-t border-border bg-background/95 backdrop-blur-sm px-4 py-3">
         {/* Model selector + quota */}
-        <div className="flex items-center gap-1.5">
-          {(['fast', 'pro'] as const).map((m) => (
-            <button key={m} onClick={() => selectModel(m)} disabled={m === 'pro' && proQuotaFull} aria-pressed={model === m}
+        <div className="flex items-center gap-1.5 mb-2">
+          {(['fast', 'pro'] as const).map(m => (
+            <button
+              key={m}
+              onClick={() => selectModel(m)}
+              disabled={m === 'pro' && proQuotaFull}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all border',
-                model === m ? 'bg-cobalt-light text-white border-cobalt-light shadow-sm' : 'bg-transparent text-muted-foreground border-border hover:text-foreground hover:border-foreground/30',
+                model === m
+                  ? 'bg-cobalt-light text-white border-cobalt-light'
+                  : 'bg-transparent text-muted-foreground border-border hover:border-foreground/30 hover:text-foreground',
                 m === 'pro' && proQuotaFull && 'opacity-40 cursor-not-allowed',
-              )}>
+              )}
+            >
               {m === 'fast' ? <Zap className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
-              {m === 'fast' ? 'Fast' : 'Pro Live'}
+              {m === 'fast' ? 'Fast' : 'Pro'}
             </button>
           ))}
-          <div className="ml-auto flex items-center gap-2">
-            {model === 'pro' && (
-              <span className={cn('text-xs', proQuotaFull ? 'text-destructive font-medium' : 'text-muted-foreground')}>
-                {proQuotaFull ? '0 / 3 — resets midnight' : `${quota.remaining} / ${quota.limit} Pro left`}
-              </span>
-            )}
-            {messages.length > 0 && (
-              <button onClick={() => setMessages([])} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-                <RotateCcw className="w-3 h-3" /> New
-              </button>
-            )}
-          </div>
+          {model === 'pro' && (
+            <span className={cn('ml-auto text-xs', proQuotaFull ? 'text-destructive font-medium' : 'text-muted-foreground')}>
+              {proQuotaFull ? '0 / 3 left' : `${quota.remaining} / ${quota.limit} Pro`}
+            </span>
+          )}
         </div>
-        <div className="glass-card p-1 flex items-center gap-2">
-          <Input placeholder={model === 'fast' ? 'Quick search...' : 'Deep search (Pro, 3/day)...'}
-            value={input} onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-            className="bg-transparent border-none text-foreground placeholder:text-muted-foreground focus-visible:ring-0 h-10" />
-          <button onClick={handleSend} disabled={!input.trim() || isTyping || (model === 'pro' && proQuotaFull)}
-            className="bg-gradient-cobalt p-2.5 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity">
-            <Send className="w-4 h-4 text-primary-foreground" />
+
+        {/* Textarea + send */}
+        <div className="flex items-end gap-2 rounded-2xl border border-border bg-secondary/40 px-4 py-2 focus-within:border-cobalt-light/50 transition-colors">
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+            placeholder={model === 'fast' ? 'Message MyPal…' : 'Deep search with Pro (3 / day)…'}
+            className="flex-1 bg-transparent border-none resize-none text-sm text-foreground placeholder:text-muted-foreground focus:outline-none min-h-[24px] max-h-[160px] leading-relaxed py-1"
+          />
+          <button
+            onClick={handleSend}
+            disabled={!canSend}
+            className="flex-shrink-0 mb-0.5 w-8 h-8 rounded-xl bg-cobalt-light flex items-center justify-center disabled:opacity-30 hover:opacity-90 transition-all"
+          >
+            <Send className="w-3.5 h-3.5 text-white" />
           </button>
         </div>
+        <p className="text-center text-[10px] text-muted-foreground/50 mt-2">
+          MyPal AI can make mistakes. Verify important info.
+        </p>
       </div>
+
       <ProductPreviewDrawer
         product={selectedProduct}
         isOpen={!!selectedProduct}
         onClose={() => setSelectedProduct(null)}
       />
+    </div>
+  );
+};
+
+// ── Shared feature history component ──────────────────────────────────────────
+
+const FeatureHistory = ({
+  feature,
+  onLoad,
+  renderSummary,
+}: {
+  feature: string;
+  onLoad: (item: FeatureHistoryItem) => void;
+  renderSummary: (item: FeatureHistoryItem) => string;
+}) => {
+  const { data, loading } = useAsync<FeatureHistoryItem[]>(
+    () => searchService.getFeatureHistory(feature), [],
+  );
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const items = data ?? [];
+  if (loading) return null;
+  if (items.length === 0) return null;
+
+  return (
+    <div className="space-y-2 pt-2 border-t border-border/50">
+      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-1.5">
+        <Clock className="w-3 h-3" /> Previous
+      </p>
+      <div className="space-y-1.5">
+        {items.slice(0, 8).map(item => (
+          <div key={item._id} className="glass-card rounded-xl overflow-hidden">
+            <button
+              className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-secondary/40 transition-colors"
+              onClick={() => setExpanded(expanded === item._id ? null : item._id)}
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-foreground truncate font-medium">{renderSummary(item)}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">{relativeTime(item.created_at)}</p>
+              </div>
+              <ChevronRight className={cn('w-3.5 h-3.5 text-muted-foreground flex-shrink-0 transition-transform', expanded === item._id && 'rotate-90')} />
+            </button>
+            {expanded === item._id && (
+              <div className="px-3 pb-3 space-y-2 border-t border-border/30">
+                <div className="pt-2 text-xs text-muted-foreground line-clamp-4 leading-relaxed">
+                  {item.output.slice(0, 300)}{item.output.length > 300 ? '…' : ''}
+                </div>
+                <button
+                  onClick={() => { onLoad(item); setExpanded(null); }}
+                  className="text-xs text-cobalt-light hover:underline font-medium"
+                >
+                  Load inputs →
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
@@ -543,6 +803,15 @@ const TranslatePanel = () => {
             <Markdown content={result} />
           </div>
         )}
+        <FeatureHistory
+          feature="translate"
+          onLoad={item => {
+            setText(String((item.input as any)?.text ?? ''));
+            setLanguage(String((item.input as any)?.target_language ?? 'Arabic'));
+            setResult(item.output);
+          }}
+          renderSummary={item => `→ ${(item.input as any)?.target_language ?? '?'}: ${String((item.input as any)?.text ?? '').slice(0, 50)}`}
+        />
       </div>
     </FeaturePanel>
   );
@@ -601,6 +870,15 @@ const SummarizePanel = () => {
             <Markdown content={result} />
           </div>
         )}
+        <FeatureHistory
+          feature="summarize"
+          onLoad={item => {
+            setText(String((item.input as any)?.text ?? ''));
+            setLength(((item.input as any)?.length as any) ?? 'medium');
+            setResult(item.output);
+          }}
+          renderSummary={item => `${(item.input as any)?.length ?? 'medium'}: ${String((item.input as any)?.text ?? '').slice(0, 60)}`}
+        />
       </div>
     </FeaturePanel>
   );
@@ -676,6 +954,17 @@ const AskProductPanel = () => {
             <Markdown content={result} />
           </div>
         )}
+        <FeatureHistory
+          feature="ask-product"
+          onLoad={item => {
+            setQuestion(String((item.input as any)?.question ?? ''));
+            setProductName(String((item.input as any)?.product_data?.name ?? ''));
+            setProductSpecs(String((item.input as any)?.product_data?.specs ?? ''));
+            setPersona(String((item.input as any)?.persona ?? ''));
+            setResult(item.output);
+          }}
+          renderSummary={item => String((item.input as any)?.question ?? '').slice(0, 70)}
+        />
       </div>
     </FeaturePanel>
   );
@@ -843,6 +1132,14 @@ const RecommendPanel = () => {
           isOpen={!!selectedProduct}
           onClose={() => setSelectedProduct(null)}
         />
+        <FeatureHistory
+          feature="recommend"
+          onLoad={item => {
+            setMode('manual');
+            setPersona(String((item.input as any)?.persona ?? ''));
+          }}
+          renderSummary={item => String((item.input as any)?.persona ?? '').slice(0, 70)}
+        />
       </div>
     </FeaturePanel>
   );
@@ -938,6 +1235,18 @@ const SellerAnalyticsPanel = () => {
             <Markdown content={result} />
           </div>
         )}
+        <FeatureHistory
+          feature="seller"
+          onLoad={item => {
+            const prev = (item.input as any)?.products;
+            if (Array.isArray(prev)) setProducts(prev);
+            setResult(item.output);
+          }}
+          renderSummary={item => {
+            const ps = (item.input as any)?.products as Array<{ product_name: string }> | undefined;
+            return ps?.map(p => p.product_name).filter(Boolean).join(', ').slice(0, 70) ?? 'Seller report';
+          }}
+        />
       </div>
     </FeaturePanel>
   );

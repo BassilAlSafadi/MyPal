@@ -1,37 +1,42 @@
 import { useEffect, useRef } from 'react';
 import { useAuthStore } from '@/stores/authStore';
-import { apiClient, tokenStore } from '@/api/client';
+import { apiClient, tokenStore, GatewayError } from '@/api/client';
 
 /**
  * Runs once on app mount. If there is a persisted user in the store (from a
- * previous session) it silently refreshes the access token via the httpOnly
- * refresh cookie and re-fetches the full profile. This prevents the "demo
- * user with no data" problem caused by:
- *   1. Token being cleared from memory on page refresh (tokenStore is in-memory)
- *   2. The persisted UserIdentity only having minimal fields (no name, no wallet)
+ * previous session) it silently refreshes the access token and re-fetches the
+ * full profile so stale in-memory state is updated.
  *
- * If the refresh + profile fetch succeeds the store is updated with fresh data.
- * If it fails (truly expired session) the persisted user is cleared so the
- * user is redirected to login by ProtectedRoute — no stale ghost data.
+ * Key behaviour:
+ * - Sets isRestoringSession=true while the check runs so ProtectedRoute shows
+ *   a loading state instead of immediately redirecting to /login.
+ * - Only calls logout() when the server explicitly returns 401 (token truly
+ *   expired / revoked). Network errors and 5xx (backend cold-starting, HF
+ *   space waking up) keep the user logged in with their persisted data.
  */
 const SessionInitializer = () => {
-  const user    = useAuthStore((s) => s.user);
-  const setUser = useAuthStore((s) => s.setUser);
-  const logout  = useAuthStore((s) => s.logout);
-  const ranRef  = useRef(false);
+  const user                = useAuthStore((s) => s.user);
+  const setUser             = useAuthStore((s) => s.setUser);
+  const logout              = useAuthStore((s) => s.logout);
+  const setRestoringSession = useAuthStore((s) => s.setRestoringSession);
+  const ranRef              = useRef(false);
 
   useEffect(() => {
-    if (ranRef.current || !user) return;
+    if (ranRef.current) return;
     ranRef.current = true;
 
-    // If a token is already in memory (e.g. same-tab navigation) skip.
+    // No persisted user — nothing to restore.
+    if (!user) return;
+
+    // Token already in memory (same-tab navigation) — profile is fresh.
     if (tokenStore.get()) return;
 
-    // Try to get a fresh token via the httpOnly refresh cookie, then
-    // immediately fetch the full profile.
+    // Mark session as restoring so ProtectedRoute shows a spinner instead of
+    // redirecting to /login during the async check.
+    setRestoringSession(true);
+
     apiClient.get<any>('/api/v1/users/me')
       .then((profile) => {
-        // Profile fetch succeeded (apiClient auto-refreshed the token).
         setUser({
           id:         profile.id,
           email:      profile.email,
@@ -43,12 +48,22 @@ const SessionInitializer = () => {
           updated_at: profile.updated_at ?? user.updated_at,
         });
       })
-      .catch(() => {
-        // Both the original call and the automatic token refresh failed.
-        // The session is truly expired — clear stale data so ProtectedRoute
-        // redirects to login cleanly.
-        tokenStore.clear();
-        logout();
+      .catch((err) => {
+        // Only wipe the session if the server explicitly rejected authentication.
+        // Network errors (backend cold-start, HF space waking up, no internet)
+        // must NOT log the user out — they should stay on their last screen.
+        const isAuthError =
+          (err instanceof GatewayError && (err.status === 401 || err.status === 403)) ||
+          (typeof err?.status === 'number' && (err.status === 401 || err.status === 403));
+
+        if (isAuthError) {
+          tokenStore.clear();
+          logout();
+        }
+        // else: keep persisted user — the backend is just unavailable right now
+      })
+      .finally(() => {
+        setRestoringSession(false);
       });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
