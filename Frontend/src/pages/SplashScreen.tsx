@@ -5,36 +5,34 @@ import LogoIcon from '@/components/LogoIcon';
 import { Progress } from '@/components/ui/progress';
 
 const SplashScreen = () => {
-  const navigate = useNavigate();
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const navigate          = useNavigate();
+  const isAuthenticated   = useAuthStore((s) => s.isAuthenticated);
+  const isRestoring       = useAuthStore((s) => s.isRestoringSession);
   const [progress, setProgress] = useState(0);
-  const [fadeOut, setFadeOut] = useState(false);
+  const [fadeOut, setFadeOut]   = useState(false);
+  const [minTimeDone, setMinTimeDone] = useState(false);
 
+  // Always show the splash for at least 2 s (brand moment + progress bar).
   useEffect(() => {
-    // Animate progress bar
     const progressInterval = setInterval(() => {
       setProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(progressInterval);
-          return 100;
-        }
+        if (prev >= 100) { clearInterval(progressInterval); return 100; }
         return prev + 5;
       });
     }, 80);
 
-    // Trigger fade out and navigate
-    const timer = setTimeout(() => {
-      setFadeOut(true);
-      setTimeout(() => {
-        navigate(isAuthenticated ? '/home' : '/login');
-      }, 300);
-    }, 2000);
+    const timer = setTimeout(() => setMinTimeDone(true), 2000);
 
-    return () => {
-      clearInterval(progressInterval);
-      clearTimeout(timer);
-    };
-  }, [isAuthenticated, navigate]);
+    return () => { clearInterval(progressInterval); clearTimeout(timer); };
+  }, []);
+
+  // Navigate only once the minimum time has elapsed AND the session check is done.
+  useEffect(() => {
+    if (!minTimeDone || isRestoring) return;
+    setFadeOut(true);
+    const t = setTimeout(() => navigate(isAuthenticated ? '/home' : '/login'), 300);
+    return () => clearTimeout(t);
+  }, [minTimeDone, isRestoring, isAuthenticated, navigate]);
 
   return (
     <div

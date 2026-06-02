@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/stores/authStore";
 import { PersonaOnboardingModal } from "@/components/PersonaOnboardingModal";
 import SessionInitializer from "@/components/SessionInitializer";
+import { Loader2 } from "lucide-react";
 import SplashScreen from "./pages/SplashScreen";
 import LoginScreen from "./pages/LoginScreen";
 import SignupScreen from "./pages/SignupScreen";
@@ -21,7 +22,19 @@ import CompleteProfileScreen from "./pages/CompleteProfileScreen";
 import NotFound from "./pages/NotFound";
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const user = useAuthStore((s) => s.user);
+  const user               = useAuthStore((s) => s.user);
+  const isRestoring        = useAuthStore((s) => s.isRestoringSession);
+
+  // While SessionInitializer is verifying the persisted session, hold here
+  // instead of redirecting — prevents the flash-to-login on refresh.
+  if (isRestoring) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-6 h-6 animate-spin text-cobalt-light" />
+      </div>
+    );
+  }
+
   if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 };
