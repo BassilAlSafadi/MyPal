@@ -749,7 +749,32 @@ router.delete('/ai/threads/:id', async (req, res) => {
   }
 });
 
-// Send a message in a thread — runs Fast or Pro, persists both turns
+// Patch a single message (by _id) inside a thread's JSONB array. Used by the
+// background Pro worker to fill in the assistant answer once it finishes.
+async function patchThreadMessage(threadId, userId, msgId, patch) {
+  const pool = getPool();
+  if (!pool) return;
+  const r = await pool.query(
+    `SELECT messages FROM public.chat_threads WHERE id = $1 AND user_id = $2`,
+    [threadId, userId],
+  );
+  if (r.rowCount === 0) return;
+  const messages = (r.rows[0].messages || []).map((m) =>
+    m && m._id === msgId ? { ...m, ...patch } : m,
+  );
+  await pool.query(
+    `UPDATE public.chat_threads SET messages = $1::jsonb, updated_at = NOW()
+     WHERE id = $2 AND user_id = $3`,
+    [JSON.stringify(messages), threadId, userId],
+  );
+}
+
+// Send a message in a thread.
+//   Fast → runs synchronously (~6s) and returns the answer.
+//   Pro  → the 14-node workflow takes ~60-90s, which exceeds upstream proxy/edge
+//          timeouts. So Pro returns immediately with a "pending" assistant
+//          message, runs the workflow in the background, and the client polls
+//          GET /ai/threads/:id until the message's status flips to "done".
 router.post('/ai/threads/:id/messages', async (req, res) => {
   const userId = req.headers['x-user-id'];
   if (!userId) return res.status(401).json({ error: 'unauthorized' });
@@ -763,10 +788,11 @@ router.post('/ai/threads/:id/messages', async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'thread storage unavailable', trace_id: traceId });
 
   try {
+    const threadId = req.params.id;
     // Load the thread (ownership-checked)
     const r = await pool.query(
       `SELECT id, title, messages FROM public.chat_threads WHERE id = $1 AND user_id = $2`,
-      [req.params.id, userId],
+      [threadId, userId],
     );
     if (r.rowCount === 0) return res.status(404).json({ error: 'not found', trace_id: traceId });
 
@@ -774,8 +800,7 @@ router.post('/ai/threads/:id/messages', async (req, res) => {
     const messages = withMessageIds(row.messages);
     const isFirstMessage = messages.length === 0;
 
-    // Build conversation history (prior turns) BEFORE appending the new user
-    // message, so the workflow gets memory of what was already discussed.
+    // Conversation history (prior turns) so the workflow has memory.
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
 
     // Append user message
@@ -787,48 +812,78 @@ router.post('/ai/threads/:id/messages', async (req, res) => {
       created_at: new Date().toISOString(),
     });
 
-    // Run the workflow
-    let aiContent = '';
-    let aiProducts = [];
+    const newTitle = isFirstMessage ? query.trim().slice(0, 60) : row.title;
 
+    // ── PRO: async — return a pending placeholder, run workflow in background ──
     if (model === 'pro') {
       logSearch(userId, query);
       const quota = await checkAndConsumeQuota(userId).catch(() => ({ allowed: true }));
       if (!quota.allowed) {
         return res.status(429).json({ error: 'quota_exceeded', message: 'Daily Pro limit reached (3/day). Resets at midnight.', trace_id: traceId });
       }
-      const result = await runMyPalAgenticWorkflow({ query: query.trim(), internal_products, history });
-      aiContent = result.state.final_output || '';
-      aiProducts = result.state.product_json?.products || [];
-    } else {
-      logSearch(userId, query);
-      const { text, products } = await fastSearchFeature(query.trim(), internal_products, undefined, history);
-      aiContent = text || '';
-      aiProducts = products || [];
+
+      const placeholder = {
+        _id: crypto.randomUUID(),
+        role: 'assistant',
+        content: '',
+        model: 'pro',
+        status: 'pending',
+        products: [],
+        internal_products: internal_products.slice(0, 5),
+        created_at: new Date().toISOString(),
+      };
+      messages.push(placeholder);
+
+      await pool.query(
+        `UPDATE public.chat_threads SET messages = $1::jsonb, title = $2, updated_at = NOW()
+         WHERE id = $3 AND user_id = $4`,
+        [JSON.stringify(messages), newTitle, threadId, userId],
+      );
+
+      // Fire-and-forget the heavy workflow; fill in the placeholder when done.
+      (async () => {
+        try {
+          const result = await runMyPalAgenticWorkflow({ query: query.trim(), internal_products, history });
+          await patchThreadMessage(threadId, userId, placeholder._id, {
+            content: result.state.final_output || '',
+            products: result.state.product_json?.products || [],
+            status: 'done',
+          });
+        } catch (err) {
+          await patchThreadMessage(threadId, userId, placeholder._id, {
+            content: 'Sorry — the Pro deep search ran into a problem. Please try again.',
+            status: 'error',
+          }).catch(() => {});
+          console.error('[pro-bg] workflow failed:', err && err.message);
+        }
+      })();
+
+      // 202 Accepted: client polls GET /ai/threads/:id for the filled-in message.
+      return res.status(202).json({ message: placeholder, pending: true, thread_id: threadId, trace_id: traceId });
     }
 
-    // Append assistant message
+    // ── FAST: synchronous ──
+    logSearch(userId, query);
+    const { text, products } = await fastSearchFeature(query.trim(), internal_products, undefined, history);
     const assistantMsg = {
       _id: crypto.randomUUID(),
       role: 'assistant',
-      content: aiContent,
-      model,
-      products: aiProducts,
+      content: text || '',
+      model: 'fast',
+      status: 'done',
+      products: products || [],
       internal_products: internal_products.slice(0, 5),
       created_at: new Date().toISOString(),
     };
     messages.push(assistantMsg);
 
-    const newTitle = isFirstMessage ? query.trim().slice(0, 60) : row.title;
-
     await pool.query(
-      `UPDATE public.chat_threads
-       SET messages = $1::jsonb, title = $2, updated_at = NOW()
+      `UPDATE public.chat_threads SET messages = $1::jsonb, title = $2, updated_at = NOW()
        WHERE id = $3 AND user_id = $4`,
-      [JSON.stringify(messages), newTitle, req.params.id, userId],
+      [JSON.stringify(messages), newTitle, threadId, userId],
     );
 
-    return res.json({ message: assistantMsg, thread_id: req.params.id, trace_id: traceId });
+    return res.json({ message: assistantMsg, thread_id: threadId, trace_id: traceId });
   } catch (err) {
     return res.status(500).json({ error: String(err), trace_id: traceId });
   }

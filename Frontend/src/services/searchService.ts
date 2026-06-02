@@ -10,6 +10,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   model?: SearchModel;
+  status?: 'pending' | 'done' | 'error';   // pending = Pro workflow still running
   products?: ExternalProduct[];
   internal_products?: Array<{ id: string; title: string; category?: string }>;
   created_at: string;
@@ -218,12 +219,38 @@ export const searchService = {
     query: string,
     model: SearchModel,
     internalProducts: Array<{ id: string; title: string; category?: string }> = [],
-  ): Promise<{ message: ChatMessage; thread_id: string }> => {
+  ): Promise<{ message: ChatMessage; thread_id: string; pending?: boolean }> => {
     return apiClient.post(`/api/v1/ai/threads/${threadId}/messages`, {
       query,
       model,
       internal_products: internalProducts,
     });
+  },
+
+  /**
+   * Poll a thread for a specific assistant message until its Pro workflow
+   * finishes (status flips from "pending" to "done"/"error"). Resolves with the
+   * completed message, or the last-seen state if it times out.
+   */
+  pollThreadMessage: async (
+    threadId: string,
+    messageId: string,
+    { intervalMs = 3000, timeoutMs = 200000 }: { intervalMs?: number; timeoutMs?: number } = {},
+  ): Promise<ChatMessage | null> => {
+    const deadline = Date.now() + timeoutMs;
+    let last: ChatMessage | null = null;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, intervalMs));
+      try {
+        const r = await apiClient.get<{ thread: ChatThread }>(`/api/v1/ai/threads/${threadId}`);
+        const msg = (r.thread?.messages || []).find((m) => m._id === messageId);
+        if (msg) {
+          last = msg;
+          if (msg.status === 'done' || msg.status === 'error') return msg;
+        }
+      } catch { /* keep polling through transient errors */ }
+    }
+    return last;
   },
 
   // ── Feature history ───────────────────────────────────────────────────────
