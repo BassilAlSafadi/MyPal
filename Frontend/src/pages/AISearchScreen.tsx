@@ -323,7 +323,7 @@ const SearchPanel = () => {
       const activeThreadId = await ensureThread();
       if (!activeThreadId) throw new Error('Could not create thread');
 
-      const { message } = await searchService.sendThreadMessage(
+      let { message, pending } = await searchService.sendThreadMessage(
         activeThreadId, query, requestModel, internalPayload,
       );
 
@@ -334,6 +334,13 @@ const SearchPanel = () => {
         const newTitle = query.slice(0, 55);
         setThreadTitle(newTitle);
         setThreadList(prev => prev.map(t => t._id === activeThreadId ? { ...t, title: newTitle, updated_at: new Date().toISOString() } : t));
+      }
+
+      // Pro runs in the background — poll the thread until the answer is ready,
+      // keeping the thinking animation visible the whole time.
+      if (pending && message?._id) {
+        const finished = await searchService.pollThreadMessage(activeThreadId, message._id);
+        if (finished) message = finished;
       }
 
       const mypalProducts = (message.internal_products && message.internal_products.length > 0
