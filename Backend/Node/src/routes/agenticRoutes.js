@@ -774,6 +774,10 @@ router.post('/ai/threads/:id/messages', async (req, res) => {
     const messages = withMessageIds(row.messages);
     const isFirstMessage = messages.length === 0;
 
+    // Build conversation history (prior turns) BEFORE appending the new user
+    // message, so the workflow gets memory of what was already discussed.
+    const history = messages.map((m) => ({ role: m.role, content: m.content }));
+
     // Append user message
     messages.push({
       _id: crypto.randomUUID(),
@@ -793,12 +797,12 @@ router.post('/ai/threads/:id/messages', async (req, res) => {
       if (!quota.allowed) {
         return res.status(429).json({ error: 'quota_exceeded', message: 'Daily Pro limit reached (3/day). Resets at midnight.', trace_id: traceId });
       }
-      const result = await runMyPalAgenticWorkflow({ query: query.trim(), internal_products });
+      const result = await runMyPalAgenticWorkflow({ query: query.trim(), internal_products, history });
       aiContent = result.state.final_output || '';
       aiProducts = result.state.product_json?.products || [];
     } else {
       logSearch(userId, query);
-      const { text, products } = await fastSearchFeature(query.trim(), internal_products);
+      const { text, products } = await fastSearchFeature(query.trim(), internal_products, undefined, history);
       aiContent = text || '';
       aiProducts = products || [];
     }

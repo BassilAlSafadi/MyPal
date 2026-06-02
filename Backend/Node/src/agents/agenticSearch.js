@@ -5,8 +5,18 @@ const MAX_ITERATIONS = 3;
 
 function createInitialState(input = {}) {
   const userMessage = input.query || input.message || input.workflow || '';
+  // Seed the message list with prior conversation turns so the orchestrator and
+  // final renderer have memory of the thread. `history` is an array of
+  // { role, content } from earlier turns (most recent last), excluding the
+  // current user message which is appended after.
+  const priorTurns = Array.isArray(input.history)
+    ? input.history
+        .filter((m) => m && m.content && (m.role === 'user' || m.role === 'assistant'))
+        .map((m) => ({ role: m.role, content: String(m.content) }))
+        .slice(-10) // cap context to last 10 turns
+    : [];
   return {
-    messages: [{ role: 'user', content: userMessage }],
+    messages: [...priorTurns, { role: 'user', content: userMessage }],
     user_persona_bio: input.user_persona_bio || input.persona || '',
     user_location: input.user_location || input.location || 'unknown',
     cleaned_intent: '',

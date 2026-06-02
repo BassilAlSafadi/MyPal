@@ -11,11 +11,18 @@ const { createLLMProvider } = require('../providers/llmProvider');
  * If the user's query happens to be shopping-related the MyPal catalog
  * results are injected as context so the model can recommend in-app products.
  */
-async function fastSearchFeature(query, internalProducts = [], provider = createLLMProvider()) {
+async function fastSearchFeature(query, internalProducts = [], provider = createLLMProvider(), history = []) {
   const [searchResults, webLinks] = await Promise.all([
     provider.tavilySearch(query, 5),
     provider.duckDuckGoSearch ? provider.duckDuckGoSearch(query, 6) : Promise.resolve([]),
   ]);
+
+  // Prior conversation turns (role/content), capped, so follow-up questions
+  // like "compare the first two" or "what about cheaper ones" keep context.
+  const priorTurns = (Array.isArray(history) ? history : [])
+    .filter((m) => m && m.content && (m.role === 'user' || m.role === 'assistant'))
+    .map((m) => ({ role: m.role, content: String(m.content).slice(0, 4000) }))
+    .slice(-8);
 
   const mypalSection = internalProducts.length > 0
     ? `\n\nPRODUCTS AVAILABLE ON MYPAL (if the query is shopping-related, recommend these first):\n${JSON.stringify(internalProducts.slice(0, 5))}`
@@ -25,8 +32,10 @@ async function fastSearchFeature(query, internalProducts = [], provider = create
     .map((r, i) => `[${i + 1}] ${r.title || ''}\nURL: ${r.url || ''}\n${r.content || ''}`)
     .join('\n\n');
 
-  const prompt = `You are a helpful search assistant — like a web search engine.
-Answer the user's query accurately, helpfully, and concisely based on the web results below.
+  const prompt = `You are a helpful search assistant — like a web search engine — in an ongoing chat.
+Answer the user's latest query accurately, helpfully, and concisely based on the web results below.
+Use the earlier conversation for context: if the user refers to "it", "those", "the first one", or asks a
+follow-up, resolve it against what was already discussed.
 
 Rules:
 - If it is a factual question, answer it directly and cite your sources with markdown links.
@@ -36,12 +45,14 @@ Rules:
 - Always include at least 2–3 source links using [Title](URL) format.
 - Do NOT make up facts not present in the results.
 
-Query: ${query}
+Latest query: ${query}
 
 Web Results:
 ${sourceSummary}${mypalSection}`;
 
-  const text = await provider.chat('gpt', [{ role: 'user', content: prompt }]);
+  // Send the prior turns as real chat messages followed by the grounded prompt,
+  // so the model keeps conversational memory within the thread.
+  const text = await provider.chat('gpt', [...priorTurns, { role: 'user', content: prompt }]);
   return { text: realText(text), products: webLinks };
 }
 
