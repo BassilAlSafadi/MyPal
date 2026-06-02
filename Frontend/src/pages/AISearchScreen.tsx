@@ -350,9 +350,16 @@ const SearchPanel = () => {
         if (!t) return prev;
         return [{ ...t, updated_at: new Date().toISOString() }, ...prev.filter(x => x._id !== activeThreadId)];
       });
-    } catch {
+    } catch (err: any) {
+      // Surface the daily Pro quota limit clearly instead of a generic failure.
+      const status = err?.status;
+      const isQuota = status === 429 || /quota/i.test(err?.message || '');
+      const content = isQuota
+        ? '⚡ You\'ve used all 3 Pro searches for today. Pro resets at midnight — Fast search is still available.'
+        : 'Search failed. Please try again in a moment.';
+      if (requestModel === 'pro') refetchQuota();
       setMessages(p => [...p, {
-        id: `err-${Date.now()}`, type: 'ai', content: 'Search failed. Please try again.',
+        id: `err-${Date.now()}`, type: 'ai', content,
         model: requestModel, timestamp: new Date(),
       }]);
     } finally {
