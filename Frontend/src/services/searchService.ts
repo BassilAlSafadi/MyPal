@@ -125,13 +125,24 @@ export const searchService = {
     };
   },
 
-  /** @deprecated Use performAISearch instead. */
+  /**
+   * Global Agentic Search — Gemini 2.5 Flash, no Pro quota consumed.
+   * Returns a text answer plus any product links found on the web.
+   */
   performGlobalAgenticSearch: async (
     query: string,
     onProgress: (log: string) => void,
-  ): Promise<any[]> => {
-    const result = await searchService.performAISearch(query, 'pro', [], onProgress);
-    return result.products;
+  ): Promise<{ text: string; products: ExternalProduct[] }> => {
+    onProgress('Searching the web...');
+    const r = await apiClient.post<{ result: string; products: ExternalProduct[] }>(
+      '/api/v1/ai/global-search',
+      { query },
+    );
+    onProgress('Gemini is synthesising results...');
+    return {
+      text: realText(r.result),
+      products: Array.isArray(r.products) ? r.products : [],
+    };
   },
 
   // ── Personalized recommendations ────────────────────────────────────────────
@@ -150,6 +161,10 @@ export const searchService = {
   // ── Quota ─────────────────────────────────────────────────────────────────
   getDeepSearchQuota: async (): Promise<{ used: number; limit: number; remaining: number; resets_at: string }> => {
     return apiClient.get('/api/v1/ai/deep-search/quota');
+  },
+
+  getGlobalSearchQuota: async (): Promise<{ used: number; limit: number; remaining: number; resets_at: string }> => {
+    return apiClient.get('/api/v1/ai/global-search/quota');
   },
 
   // ── Text Translation (notebook Cell 25) ───────────────────────────────────

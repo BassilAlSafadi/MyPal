@@ -3,6 +3,8 @@ import { searchService, type ExternalProduct } from '@/services/searchService';
 import { PRODUCT_IMAGE_FALLBACK } from '@/lib/productImage';
 import type { SemanticSearchResult } from '../../../shared/contracts/search/contracts';
 
+export interface SearchQuota { used: number; limit: number; remaining: number; resets_at: string }
+
 export type SearchMode = 'internal' | 'global';
 
 export interface SearchResult extends Partial<SemanticSearchResult> {
@@ -44,27 +46,40 @@ interface SearchState {
   mode: SearchMode;
   query: string;
   results: SearchResult[];
+  aiAnswer: string;
   isSearching: boolean;
   consoleLogs: string[];
+  globalQuota: SearchQuota;
   setMode: (mode: SearchMode) => void;
   setQuery: (q: string) => void;
   runSearch: (q: string) => Promise<void>;
   clearResults: () => void;
+  fetchGlobalQuota: () => Promise<void>;
 }
+
+const DEFAULT_GLOBAL_QUOTA: SearchQuota = { used: 0, limit: 5, remaining: 5, resets_at: '' };
 
 export const useSearchStore = create<SearchState>()((set, get) => ({
   mode: 'internal',
   query: '',
   results: [],
+  aiAnswer: '',
   isSearching: false,
   consoleLogs: [],
+  globalQuota: DEFAULT_GLOBAL_QUOTA,
+  fetchGlobalQuota: async () => {
+    try {
+      const q = await searchService.getGlobalSearchQuota();
+      set({ globalQuota: q });
+    } catch { /* non-fatal */ }
+  },
   setMode: (mode) => set({ mode }),
   setQuery: (q) => set({ query: q }),
-  clearResults: () => set({ results: [], consoleLogs: [], isSearching: false }),
+  clearResults: () => set({ results: [], aiAnswer: '', consoleLogs: [], isSearching: false }),
   runSearch: async (q) => {
     const { mode } = get();
-    set({ isSearching: true, query: q, results: [], consoleLogs: [] });
-    
+    set({ isSearching: true, query: q, results: [], aiAnswer: '', consoleLogs: [] });
+
     try {
       if (mode === 'internal') {
         const results = await searchService.performInternalSearch(q);
@@ -73,17 +88,39 @@ export const useSearchStore = create<SearchState>()((set, get) => ({
           image: r.image_url || PRODUCT_IMAGE_FALLBACK,
           source: 'marketplace',
           seller: 'MyPal Verified',
-          rating: 4.5 + Math.random() * 0.5, // placeholder until reviews are joined
+          rating: 4.5 + Math.random() * 0.5,
         }));
         set({ results: mapped as SearchResult[], isSearching: false });
       } else {
-        const products = await searchService.performGlobalAgenticSearch(q, (log) => {
+        // Optimistically decrement so the counter updates immediately
+        set((state) => ({
+          globalQuota: {
+            ...state.globalQuota,
+            used: state.globalQuota.used + 1,
+            remaining: Math.max(0, state.globalQuota.remaining - 1),
+          },
+        }));
+        const { text, products } = await searchService.performGlobalAgenticSearch(q, (log) => {
           set((state) => ({ consoleLogs: [...state.consoleLogs, log] }));
         });
-        set({ results: products.map(mapExternalResult), isSearching: false });
+        set({ results: products.map(mapExternalResult), aiAnswer: text, isSearching: false });
+        // Re-sync with server in background
+        searchService.getGlobalSearchQuota()
+          .then((q) => set({ globalQuota: q }))
+          .catch(() => {});
       }
-    } catch (error) {
-      set({ isSearching: false, consoleLogs: ['Search failed. Please try again.'] });
+    } catch (error: any) {
+      const isQuota = error?.status === 429 || /quota/i.test(error?.message || '');
+      set({
+        isSearching: false,
+        consoleLogs: [isQuota
+          ? `Daily limit reached (${get().globalQuota.limit}/day). Resets at midnight.`
+          : 'Search failed. Please try again.'],
+      });
+      // Re-sync quota so UI reflects actual server state
+      searchService.getGlobalSearchQuota()
+        .then((q) => set({ globalQuota: q }))
+        .catch(() => {});
     }
   },
 }));

@@ -692,13 +692,16 @@ const SearchPanel = () => {
             >
               {m === 'fast' ? <Zap className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
               {m === 'fast' ? 'Fast' : 'Pro'}
+              {m === 'pro' && (
+                <span className={cn(
+                  'ml-0.5 text-[9px] font-black tabular-nums',
+                  model === 'pro' ? 'text-white/80' : proQuotaFull ? 'text-destructive' : 'text-muted-foreground',
+                )}>
+                  {quota.remaining}/{quota.limit}
+                </span>
+              )}
             </button>
           ))}
-          {model === 'pro' && (
-            <span className={cn('ml-auto text-xs', proQuotaFull ? 'text-destructive font-medium' : 'text-muted-foreground')}>
-              {proQuotaFull ? '0 / 3 left' : `${quota.remaining} / ${quota.limit} Pro`}
-            </span>
-          )}
         </div>
 
         {/* Textarea + send */}
