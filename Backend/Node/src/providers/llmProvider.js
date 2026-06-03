@@ -68,6 +68,14 @@ const MODEL_CONFIG = {
     model: 'cohere/Cohere-command-a',
     temperature: 0.3,
   },
+  // gemini-flash: Google Gemini 2.5 Flash — used by the global agentic search
+  // (separate workflow from Pro deep-search, no quota consumed).
+  'gemini-flash': {
+    provider: 'gemini-api',
+    model: 'gemini-2.5-flash',
+    temperature: 0.3,
+    max_tokens: 2048,
+  },
 };
 
 function mockResponse(modelKey, messages, responseFormat) {
@@ -180,6 +188,9 @@ function createLLMProvider(env = process.env, httpClient = createDefaultHttpClie
     } else if (cfg.provider === 'mistral') {
       apiKey = env.MISTRAL_API_KEY;
       baseUrl = mistralBase;
+    } else if (cfg.provider === 'gemini-api') {
+      apiKey = env.GEMINI_API_KEY;
+      baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai';
     }
 
     if (!apiKey || !baseUrl) return mock();

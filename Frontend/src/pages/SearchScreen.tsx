@@ -15,13 +15,17 @@ import { cn } from '@/lib/utils';
 const SearchScreen = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { mode, setMode, query, setQuery, runSearch, isSearching, results, consoleLogs } = useSearchStore();
+  const { mode, setMode, query, setQuery, runSearch, isSearching, results, aiAnswer, consoleLogs, globalQuota, fetchGlobalQuota } = useSearchStore();
   
   const initialQuery = searchParams.get('q') || '';
   
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const globalQuotaFull = mode === 'global' && globalQuota.remaining <= 0;
+
+  useEffect(() => { fetchGlobalQuota(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (initialQuery && initialQuery !== query) {
@@ -46,7 +50,7 @@ const SearchScreen = () => {
   }, []);
 
   const handleSearch = () => {
-    if (query.trim()) {
+    if (query.trim() && !globalQuotaFull) {
       setSearchParams({ q: query.trim() });
       runSearch(query.trim());
     }
@@ -78,6 +82,14 @@ const SearchScreen = () => {
                   )}
                 >
                   <Globe className="w-3.5 h-3.5" /> Global Agentic
+                  {mode === 'global' && (
+                    <span className={cn(
+                      "ml-1 text-[9px] font-black tabular-nums",
+                      globalQuotaFull ? "text-destructive" : "text-purple-500"
+                    )}>
+                      {globalQuota.remaining}/{globalQuota.limit}
+                    </span>
+                  )}
                 </button>
               </div>
 
@@ -90,11 +102,16 @@ const SearchScreen = () => {
                   )}
                   <Input
                     ref={searchInputRef}
-                    placeholder={mode === 'global' ? "Describe exactly what you need..." : "Search resident inventory..."}
+                    placeholder={
+                      globalQuotaFull
+                        ? "Daily limit reached — resets at midnight"
+                        : mode === 'global' ? "Describe exactly what you need..." : "Search resident inventory..."
+                    }
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                    className="bg-transparent border-none text-foreground placeholder:text-muted-foreground focus-visible:ring-0 h-10 text-base"
+                    disabled={globalQuotaFull}
+                    className="bg-transparent border-none text-foreground placeholder:text-muted-foreground focus-visible:ring-0 h-10 text-base disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                   {query && (
                     <button onClick={() => setQuery('')} className="p-1 hover:bg-secondary rounded-full">
@@ -105,10 +122,11 @@ const SearchScreen = () => {
                 </div>
                 <Button
                   onClick={handleSearch}
-                  disabled={isSearching}
+                  disabled={isSearching || globalQuotaFull}
                   className={cn(
                     "h-10 px-6 rounded-lg font-bold gap-2 shadow-md",
-                    mode === 'global' ? "bg-purple-600 hover:bg-purple-700" : "bg-gradient-cobalt hover:opacity-90"
+                    mode === 'global' ? "bg-purple-600 hover:bg-purple-700" : "bg-gradient-cobalt hover:opacity-90",
+                    globalQuotaFull && "opacity-50 cursor-not-allowed"
                   )}
                 >
                   {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
@@ -124,6 +142,18 @@ const SearchScreen = () => {
               </Button>
             </div>
           </div>
+
+          {/* Quota-exhausted banner */}
+          {mode === 'global' && globalQuotaFull && (
+            <div className="animate-fade-in w-full">
+              <div className="glass-card border-destructive/30 bg-destructive/5 px-4 py-3 flex items-center gap-3">
+                <Globe className="w-4 h-4 text-destructive flex-shrink-0" />
+                <p className="text-xs font-semibold text-destructive">
+                  You've used all {globalQuota.limit} Global Agentic searches for today. Resets at midnight.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Status Console (Evolved for Explainable AI) */}
           {isSearching && mode === 'global' && (
@@ -161,8 +191,20 @@ const SearchScreen = () => {
               <ProductCardSkeleton key={i} />
             ))}
           </div>
-        ) : results.length > 0 ? (
+        ) : results.length > 0 || aiAnswer ? (
           <div className="space-y-8">
+            {/* Gemini answer card — only shown in global mode */}
+            {mode === 'global' && aiAnswer && (
+              <div className="glass-card border-purple-500/20 bg-purple-500/[0.03] p-5 space-y-3 animate-fade-in">
+                <div className="flex items-center gap-2 text-purple-600">
+                  <Sparkles className="w-4 h-4" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Gemini Answer</span>
+                </div>
+                <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{aiAnswer}</div>
+              </div>
+            )}
+
+            {results.length > 0 && (
             <div className="flex items-end justify-between">
               <div>
                 <h2 className="text-2xl font-serif font-bold text-foreground">
@@ -171,16 +213,19 @@ const SearchScreen = () => {
                 <p className="text-sm text-muted-foreground font-medium">Found {results.length} matches for your query</p>
               </div>
             </div>
-            
+            )}
+
+            {results.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-6">
               {results.map((product) => (
-                <ProductCard 
-                  key={product.id} 
-                  product={product} 
+                <ProductCard
+                  key={product.id}
+                  product={product}
                   onClick={() => setSelectedResult(product)}
                 />
               ))}
             </div>
+            )}
           </div>
         ) : (
           <div className="text-center py-32 space-y-4">

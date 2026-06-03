@@ -11,6 +11,7 @@ const { askProductExpert } = require('../agents/productExpert');
 const { cleanScrapedContent } = require('../agents/dataCleaner');
 const { MyPalSellerAnalytics } = require('../agents/sellerAnalytics');
 const { MyPalProdRecommender } = require('../agents/recommender');
+const { runGlobalSearch } = require('../agents/globalSearch');
 const { safeParseJSON } = require('../utils/helpers');
 
 const router = express.Router();
@@ -260,8 +261,9 @@ router.post('/agent/orchestrate', async (req, res) => {
 
 // ── AI features ───────────────────────────────────────────────────────────────
 
-// ── Deep-search quota helpers ─────────────────────────────────────────────────
-const DEEP_SEARCH_LIMIT = 3;
+// ── Quota helpers ─────────────────────────────────────────────────────────────
+const DEEP_SEARCH_LIMIT   = 3;
+const GLOBAL_SEARCH_LIMIT = 5;
 
 async function checkAndConsumeQuota(userId) {
   const pool = getPool();
@@ -322,6 +324,66 @@ router.get('/ai/deep-search/quota', async (req, res) => {
   });
 });
 
+// ── Global search quota helpers ───────────────────────────────────────────────
+
+async function checkAndConsumeGlobalQuota(userId) {
+  const pool = getPool();
+  if (!pool || !userId) return { allowed: true, used: 0, remaining: GLOBAL_SEARCH_LIMIT };
+
+  const today = new Date().toISOString().split('T')[0];
+  const r = await pool.query(
+    'SELECT global_search_date, global_search_count FROM public.users WHERE id = $1',
+    [userId],
+  );
+  if (!r.rows.length) return { allowed: true, used: 0, remaining: GLOBAL_SEARCH_LIMIT };
+
+  const { global_search_date: lastDate, global_search_count: rawCount } = r.rows[0];
+  const isToday = lastDate && lastDate.toISOString().split('T')[0] === today;
+  const used = isToday ? (rawCount || 0) : 0;
+
+  if (used >= GLOBAL_SEARCH_LIMIT) {
+    return { allowed: false, used, remaining: 0 };
+  }
+
+  await pool.query(
+    `UPDATE public.users SET global_search_count = $1, global_search_date = $2 WHERE id = $3`,
+    [used + 1, today, userId],
+  );
+  return { allowed: true, used: used + 1, remaining: GLOBAL_SEARCH_LIMIT - (used + 1) };
+}
+
+router.get('/ai/global-search/quota', async (req, res) => {
+  const userId = req.headers['x-user-id'];
+  const pool = getPool();
+
+  if (!pool || !userId) {
+    return res.json({ used: 0, limit: GLOBAL_SEARCH_LIMIT, remaining: GLOBAL_SEARCH_LIMIT, resets_at: '' });
+  }
+
+  const today = new Date().toISOString().split('T')[0];
+  const r = await pool.query(
+    'SELECT global_search_date, global_search_count FROM public.users WHERE id = $1',
+    [userId],
+  );
+
+  let used = 0;
+  if (r.rows.length) {
+    const { global_search_date: lastDate, global_search_count: cnt } = r.rows[0];
+    const isToday = lastDate && lastDate.toISOString().split('T')[0] === today;
+    used = isToday ? (cnt || 0) : 0;
+  }
+
+  const tomorrow = new Date();
+  tomorrow.setUTCHours(24, 0, 0, 0);
+
+  return res.json({
+    used,
+    limit: GLOBAL_SEARCH_LIMIT,
+    remaining: Math.max(0, GLOBAL_SEARCH_LIMIT - used),
+    resets_at: tomorrow.toISOString(),
+  });
+});
+
 router.post('/ai/deep-search', async (req, res) => {
   const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
   const userId = req.headers['x-user-id'];
@@ -365,6 +427,42 @@ router.post('/ai/fast-search', async (req, res) => {
 
   try {
     const { text, products } = await fastSearchFeature(req.body.query || '', req.body.internal_products || []);
+    return res.json({ result: text, products: products || [], trace_id: traceId });
+  } catch (err) {
+    return res.status(500).json({ error: String(err), trace_id: traceId });
+  }
+});
+
+// ── Global Agentic Search (Gemini 2.5 Flash, 5/day quota) ────────────────────
+router.post('/ai/global-search', async (req, res) => {
+  const traceId = req.headers['x-trace-id'] || crypto.randomUUID();
+  const userId  = req.headers['x-user-id'];
+  const { query, internal_products: internalProducts = [] } = req.body || {};
+
+  if (!query || !query.trim()) {
+    return res.status(400).json({ error: 'query is required', trace_id: traceId });
+  }
+
+  try {
+    const quota = await checkAndConsumeGlobalQuota(userId);
+    if (!quota.allowed) {
+      const tomorrow = new Date();
+      tomorrow.setUTCHours(24, 0, 0, 0);
+      return res.status(429).json({
+        error: 'quota_exceeded',
+        message: `Daily Global search limit reached (${GLOBAL_SEARCH_LIMIT}/day). Resets at midnight.`,
+        resets_at: tomorrow.toISOString(),
+        trace_id: traceId,
+      });
+    }
+  } catch (quotaErr) {
+    console.warn('[quota] global check failed (non-fatal):', quotaErr && quotaErr.message);
+  }
+
+  if (userId) logSearch(userId, query);
+
+  try {
+    const { text, products } = await runGlobalSearch(query, internalProducts);
     return res.json({ result: text, products: products || [], trace_id: traceId });
   } catch (err) {
     return res.status(500).json({ error: String(err), trace_id: traceId });
