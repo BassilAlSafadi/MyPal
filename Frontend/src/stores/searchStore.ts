@@ -104,23 +104,19 @@ export const useSearchStore = create<SearchState>()((set, get) => ({
           set((state) => ({ consoleLogs: [...state.consoleLogs, log] }));
         });
         set({ results: products.map(mapExternalResult), aiAnswer: text, isSearching: false });
-        // Re-sync with server in background
-        searchService.getGlobalSearchQuota()
-          .then((q) => set({ globalQuota: q }))
-          .catch(() => {});
       }
     } catch (error: any) {
       const isQuota = error?.status === 429 || /quota/i.test(error?.message || '');
+      // If the server rejected with quota_exceeded, snap the counter to 0
+      if (isQuota) {
+        set((state) => ({ globalQuota: { ...state.globalQuota, remaining: 0 } }));
+      }
       set({
         isSearching: false,
         consoleLogs: [isQuota
           ? `Daily limit reached (${get().globalQuota.limit}/day). Resets at midnight.`
           : 'Search failed. Please try again.'],
       });
-      // Re-sync quota so UI reflects actual server state
-      searchService.getGlobalSearchQuota()
-        .then((q) => set({ globalQuota: q }))
-        .catch(() => {});
     }
   },
 }));

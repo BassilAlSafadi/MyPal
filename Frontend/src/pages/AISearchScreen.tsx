@@ -183,7 +183,8 @@ const SearchPanel = () => {
   const quota: Quota = quotaData ?? { used: 0, limit: 3, remaining: 3, resets_at: '' };
   const [proUsedLocal, setProUsedLocal] = useState(0);
   // Sync local counter whenever server data arrives
-  useEffect(() => { if (quotaData) setProUsedLocal(quotaData.used); }, [quotaData]);
+  // Only sync upward — never let a server response undo an optimistic increment
+  useEffect(() => { if (quotaData) setProUsedLocal(prev => Math.max(prev, quotaData.used)); }, [quotaData]);
   const proRemaining = Math.max(0, quota.limit - proUsedLocal);
   const proQuotaFull = proRemaining <= 0;
 
@@ -334,8 +335,6 @@ const SearchPanel = () => {
         activeThreadId, query, requestModel, internalPayload,
       );
 
-      if (requestModel === 'pro') refetchQuota();
-
       // Auto-title on first message of a new chat
       if (threadTitle === 'New chat') {
         const newTitle = query.slice(0, 55);
@@ -384,7 +383,6 @@ const SearchPanel = () => {
       const content = isQuota
         ? `⚡ You've used all ${quota.limit} Pro searches for today. Pro resets at midnight — Fast search is still available.`
         : 'Search failed. Please try again in a moment.';
-      if (requestModel === 'pro') refetchQuota();
       setMessages(p => [...p, {
         id: `err-${Date.now()}`, type: 'ai', content,
         model: requestModel, timestamp: new Date(),
