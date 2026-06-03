@@ -176,16 +176,20 @@ const SearchPanel = () => {
   const [threadListLoading, setThreadListLoading] = useState(false); // only for drawer
   const [switchingThread, setSwitchingThread]     = useState(false); // only for thread switch
 
-  // Quota
+  // Quota — server value + local optimistic counter
   const { data: quotaData, refetch: refetchQuota } = useAsync<Quota>(
     () => searchService.getDeepSearchQuota(), [],
   );
   const quota: Quota = quotaData ?? { used: 0, limit: 3, remaining: 3, resets_at: '' };
-  const proQuotaFull = quota.remaining <= 0;
+  const [proUsedLocal, setProUsedLocal] = useState(0);
+  // Sync local counter whenever server data arrives
+  useEffect(() => { if (quotaData) setProUsedLocal(quotaData.used); }, [quotaData]);
+  const proRemaining = Math.max(0, quota.limit - proUsedLocal);
+  const proQuotaFull = proRemaining <= 0;
 
   const selectModel = useCallback((m: SearchModel) => {
     if (m === 'pro' && proQuotaFull) {
-      toast.info("You've used all 3 Pro searches today. Pro resets at midnight.");
+      toast.info(`You've used all ${quota.limit} Pro searches today. Pro resets at midnight.`);
       return;
     }
     selectedModelRef.current = m;
@@ -323,6 +327,9 @@ const SearchPanel = () => {
       const activeThreadId = await ensureThread();
       if (!activeThreadId) throw new Error('Could not create thread');
 
+      // Optimistic decrement so the counter drops immediately on send
+      if (requestModel === 'pro') setProUsedLocal(n => n + 1);
+
       let { message, pending } = await searchService.sendThreadMessage(
         activeThreadId, query, requestModel, internalPayload,
       );
@@ -375,7 +382,7 @@ const SearchPanel = () => {
       const status = err?.status;
       const isQuota = status === 429 || /quota/i.test(err?.message || '');
       const content = isQuota
-        ? '⚡ You\'ve used all 3 Pro searches for today. Pro resets at midnight — Fast search is still available.'
+        ? `⚡ You've used all ${quota.limit} Pro searches for today. Pro resets at midnight — Fast search is still available.`
         : 'Search failed. Please try again in a moment.';
       if (requestModel === 'pro') refetchQuota();
       setMessages(p => [...p, {
@@ -692,16 +699,18 @@ const SearchPanel = () => {
             >
               {m === 'fast' ? <Zap className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
               {m === 'fast' ? 'Fast' : 'Pro'}
-              {m === 'pro' && (
-                <span className={cn(
-                  'ml-0.5 text-[9px] font-black tabular-nums',
-                  model === 'pro' ? 'text-white/80' : proQuotaFull ? 'text-destructive' : 'text-muted-foreground',
-                )}>
-                  {quota.remaining}/{quota.limit}
-                </span>
-              )}
             </button>
           ))}
+
+          {/* Pro quota counter — always visible, ticks down on each search */}
+          <span className={cn(
+            'ml-auto text-xs font-semibold tabular-nums px-2 py-0.5 rounded-full border',
+            proQuotaFull
+              ? 'text-destructive border-destructive/40 bg-destructive/5'
+              : 'text-muted-foreground border-border',
+          )}>
+            {proRemaining}/{quota.limit} Pro
+          </span>
         </div>
 
         {/* Textarea + send */}
