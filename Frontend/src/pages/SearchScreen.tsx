@@ -64,33 +64,39 @@ const SearchScreen = () => {
           <div className="flex flex-col md:flex-row md:items-center gap-6">
             {/* Search Bar Group */}
             <div className="flex-1 flex flex-col gap-4">
-              <div className="flex p-1 bg-secondary/50 rounded-xl w-fit border border-border/50">
-                <button
-                  onClick={() => setMode('internal')}
-                  className={cn(
-                    "flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
-                    mode === 'internal' ? "bg-white shadow-sm text-cobalt" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <Database className="w-3.5 h-3.5" /> MyPal Internal
-                </button>
-                <button
-                  onClick={() => setMode('global')}
-                  className={cn(
-                    "flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
-                    mode === 'global' ? "bg-white shadow-sm text-purple-600" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <Globe className="w-3.5 h-3.5" /> Global Agentic
-                  {mode === 'global' && (
-                    <span className={cn(
-                      "ml-1 text-[9px] font-black tabular-nums",
-                      globalQuotaFull ? "text-destructive" : "text-purple-500"
-                    )}>
-                      {globalQuota.remaining}/{globalQuota.limit}
-                    </span>
-                  )}
-                </button>
+              <div className="flex items-center gap-3">
+                <div className="flex p-1 bg-secondary/50 rounded-xl border border-border/50">
+                  <button
+                    onClick={() => setMode('internal')}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
+                      mode === 'internal' ? "bg-white shadow-sm text-cobalt" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Database className="w-3.5 h-3.5" /> MyPal Internal
+                  </button>
+                  <button
+                    onClick={() => setMode('global')}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
+                      mode === 'global' ? "bg-white shadow-sm text-purple-600" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Globe className="w-3.5 h-3.5" /> Global Agentic
+                  </button>
+                </div>
+
+                {/* Global quota counter — visible whenever Global mode is active */}
+                {mode === 'global' && (
+                  <span className={cn(
+                    "text-xs font-semibold tabular-nums px-2.5 py-1 rounded-full border whitespace-nowrap",
+                    globalQuotaFull
+                      ? "text-destructive border-destructive/40 bg-destructive/5"
+                      : "text-purple-600 border-purple-300/50 bg-purple-50/50 dark:bg-purple-900/10"
+                  )}>
+                    {globalQuota.remaining}/{globalQuota.limit} searches left
+                  </span>
+                )}
               </div>
 
               <div className="glass-card p-1 flex items-center gap-2 shadow-lg border-cobalt-light/20">
