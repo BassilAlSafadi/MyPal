@@ -18,7 +18,6 @@ const SessionInitializer = () => {
   const user                = useAuthStore((s) => s.user);
   const hasHydrated         = useAuthStore((s) => s.hasHydrated);
   const setUser             = useAuthStore((s) => s.setUser);
-  const logout              = useAuthStore((s) => s.logout);
   const setRestoringSession = useAuthStore((s) => s.setRestoringSession);
   const ranRef              = useRef(false);
 
@@ -61,8 +60,9 @@ const SessionInitializer = () => {
 
         if (isAuthError) {
           tokenStore.clear();
+          // A restore-time 401 should not destroy the persisted browser session.
+          // Explicit logout remains the only frontend path that clears the user.
           refreshTokenStore.clear();
-          if (user) logout();
         } else if (!user) {
           const fallbackUser = userFromRefreshToken(refreshTokenStore.get());
           if (fallbackUser) setUser(fallbackUser);
