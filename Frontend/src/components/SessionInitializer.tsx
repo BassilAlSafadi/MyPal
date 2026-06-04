@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useAuthStore } from '@/stores/authStore';
-import { apiClient, tokenStore, GatewayError } from '@/api/client';
+import { apiClient, tokenStore, refreshTokenStore, GatewayError } from '@/api/client';
 
 /**
- * Runs once on app mount. If there is a persisted user in the store (from a
- * previous session) it silently refreshes the access token and re-fetches the
+ * Runs once on app mount. If there is a persisted user or refresh token from a
+ * previous session, it silently refreshes the access token and re-fetches the
  * full profile so stale in-memory state is updated.
  *
  * Key behaviour:
@@ -25,8 +25,9 @@ const SessionInitializer = () => {
     if (ranRef.current) return;
     ranRef.current = true;
 
-    // No persisted user — nothing to restore.
-    if (!user) return;
+    // No persisted user or refresh token: nothing to restore.
+    const hasRefreshToken = !!refreshTokenStore.get();
+    if (!user && !hasRefreshToken) return;
 
     // Token already in memory (same-tab navigation) — profile is fresh.
     if (tokenStore.get()) return;
@@ -44,8 +45,8 @@ const SessionInitializer = () => {
           is_buyer:   profile.is_buyer  ?? true,
           is_seller:  profile.is_seller ?? false,
           roles:      Array.isArray(profile.roles) ? profile.roles : [],
-          created_at: profile.created_at ?? user.created_at,
-          updated_at: profile.updated_at ?? user.updated_at,
+          created_at: profile.created_at ?? user?.created_at ?? new Date().toISOString(),
+          updated_at: profile.updated_at ?? user?.updated_at ?? new Date().toISOString(),
         });
       })
       .catch((err) => {
@@ -58,7 +59,11 @@ const SessionInitializer = () => {
 
         if (isAuthError) {
           tokenStore.clear();
-          logout();
+          refreshTokenStore.clear();
+          if (user) logout();
+        } else if (!user) {
+          const fallbackUser = userFromRefreshToken(refreshTokenStore.get());
+          if (fallbackUser) setUser(fallbackUser);
         }
         // else: keep persisted user — the backend is just unavailable right now
       })
@@ -69,5 +74,36 @@ const SessionInitializer = () => {
 
   return null;
 };
+
+function userFromRefreshToken(refreshToken: string | null) {
+  if (!refreshToken) return null;
+
+  try {
+    const payload = decodeJwtPayload(refreshToken);
+    const email = typeof payload.email === 'string' ? payload.email : '';
+
+    return {
+      id: String(payload.sub || ''),
+      email,
+      username: email.split('@')[0] || '',
+      is_buyer: true,
+      is_seller: false,
+      roles: ['buyer'],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function decodeJwtPayload(token: string): Record<string, any> {
+  const payload = token.split('.')[1];
+  if (!payload) throw new Error('Invalid token');
+
+  const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+  return JSON.parse(atob(padded));
+}
 
 export default SessionInitializer;

@@ -128,18 +128,26 @@ public class JwtService : IJwtService
 
     private TimeSpan ParseRefreshLifetime()
     {
-        var raw = _config["JWT_REFRESH_EXPIRY"] ?? _config["JWT_REFRESH_EXPIRY_MINUTES"] ?? "365d";
+        // Product requirement: users should not have to sign in again unless
+        // they explicitly log out. Refresh tokens are rotated on every refresh,
+        // so active sessions keep extending; this default mainly covers long
+        // gaps between visits.
+        var raw = _config["JWT_REFRESH_EXPIRY"] ?? _config["JWT_REFRESH_EXPIRY_MINUTES"] ?? "3650d";
         raw = raw.Trim().ToLowerInvariant();
 
+        TimeSpan parsed;
         if (raw.EndsWith("d") && double.TryParse(raw[..^1], out var days))
-            return TimeSpan.FromDays(days);
-        if (raw.EndsWith("h") && double.TryParse(raw[..^1], out var hours))
-            return TimeSpan.FromHours(hours);
-        if (raw.EndsWith("m") && double.TryParse(raw[..^1], out var minutes))
-            return TimeSpan.FromMinutes(minutes);
-        if (double.TryParse(raw, out var rawMinutes))
-            return TimeSpan.FromMinutes(rawMinutes);
+            parsed = TimeSpan.FromDays(days);
+        else if (raw.EndsWith("h") && double.TryParse(raw[..^1], out var hours))
+            parsed = TimeSpan.FromHours(hours);
+        else if (raw.EndsWith("m") && double.TryParse(raw[..^1], out var minutes))
+            parsed = TimeSpan.FromMinutes(minutes);
+        else if (double.TryParse(raw, out var rawMinutes))
+            parsed = TimeSpan.FromMinutes(rawMinutes);
+        else
+            parsed = TimeSpan.FromDays(3650);
 
-        return TimeSpan.FromDays(30);
+        var minimumSessionLifetime = TimeSpan.FromDays(3650);
+        return parsed < minimumSessionLifetime ? minimumSessionLifetime : parsed;
     }
 }

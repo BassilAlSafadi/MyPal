@@ -61,8 +61,13 @@ export const authService = {
    * Refreshes the access token using the refresh token.
    */
   refreshToken: async (): Promise<string> => {
-    const response = await apiClient.post<{ access_token: string }>('/api/v1/auth/refresh', {});
+    const storedRefreshToken = refreshTokenStore.get();
+    const response = await apiClient.post<{ access_token: string; refresh_token?: string }>(
+      '/api/v1/auth/refresh',
+      storedRefreshToken ? { refresh_token: storedRefreshToken } : {},
+    );
     tokenStore.set(response.access_token);
+    if (response.refresh_token) refreshTokenStore.set(response.refresh_token);
     return response.access_token;
   },
 

@@ -19,8 +19,8 @@ public.users (
 ### JWT Architecture
 
 - **Access Token**: 15 min expiry, signed with `JWT_SECRET`, contains `{ sub, email, roles[], iat, exp }`
-- **Refresh Token**: 30 day expiry, signed with `JWT_REFRESH_SECRET`, stored in `httpOnly` cookie
-- **Rotation**: Every refresh rotates both tokens. Old refresh tokens are invalidated in Redis
+- **Refresh Token**: Long-lived sliding session, signed with `JWT_REFRESH_SECRET`, stored in an `httpOnly` cookie and mirrored to localStorage for browsers that block cross-site cookies
+- **Rotation**: Every refresh rotates both tokens and extends the session. Users should only need to authenticate again after explicit logout or local browser storage removal
 - **Revocation**: Redis set `revoked_tokens` checked on every JWT validation at Gateway
 
 ### Auth Flow
@@ -29,7 +29,7 @@ public.users (
 1. Frontend → POST /api/v1/auth/login → Gateway → C# API
 2. C# validates credentials → issues JWT + refresh token
 3. Gateway sets refresh token as httpOnly cookie
-4. Frontend stores access token in memory (never localStorage)
+4. Frontend stores access token in memory and persists the refresh token for cross-browser session restoration
 5. On 401 → Frontend calls /api/v1/auth/refresh → Gateway → C# rotates tokens
 ```
 

@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/stores/authStore";
+import { refreshTokenStore } from "@/api/client";
 import { PersonaOnboardingModal } from "@/components/PersonaOnboardingModal";
 import SessionInitializer from "@/components/SessionInitializer";
 import { Loader2 } from "lucide-react";
@@ -24,10 +25,11 @@ import NotFound from "./pages/NotFound";
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const user               = useAuthStore((s) => s.user);
   const isRestoring        = useAuthStore((s) => s.isRestoringSession);
+  const hasRefreshToken    = !!refreshTokenStore.get();
 
   // While SessionInitializer is verifying the persisted session, hold here
   // instead of redirecting — prevents the flash-to-login on refresh.
-  if (isRestoring) {
+  if (isRestoring || (!user && hasRefreshToken)) {
     return (
       <div className="h-screen flex items-center justify-center bg-background">
         <Loader2 className="w-6 h-6 animate-spin text-cobalt-light" />

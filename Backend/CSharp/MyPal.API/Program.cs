@@ -1126,7 +1126,7 @@ static UserIdentityResponse ToUserIdentity(User user)
 
 static void SetRefreshCookie(HttpContext context, string refreshToken)
 {
-    context.Response.Cookies.Append("mypal_refresh", refreshToken, RefreshCookieOptions(context, DateTimeOffset.UtcNow.AddDays(30)));
+    context.Response.Cookies.Append("mypal_refresh", refreshToken, RefreshCookieOptions(context, DateTimeOffset.UtcNow.AddDays(3650)));
 }
 
 // The SPA (Vercel) talks to the gateway (Render) cross-site, so the refresh cookie
