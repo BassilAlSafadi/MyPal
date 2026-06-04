@@ -120,10 +120,21 @@ async function gatewayFetch<T>(
   });
 
   if (response.status === 401 && retryOnUnauthorized && shouldRefreshOnUnauthorized(path)) {
-    const refreshed = await refreshAccessToken();
-    if (refreshed) {
+    const refreshOutcome = await refreshAccessToken();
+    if (refreshOutcome === 'ok') {
       return gatewayFetch<T>(path, options, false);
     }
+    if (refreshOutcome === 'soft_fail') {
+      // Backend is temporarily down (5xx / network error). Don't propagate the
+      // original 401 — that would look like "token rejected" to callers like
+      // SessionInitializer and cause a logout. Throw 503 instead so the caller
+      // knows the session is still valid but the backend is unreachable.
+      throw new GatewayError(503, {
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'Service temporarily unavailable, please try again shortly.',
+      });
+    }
+    // hard_fail: token was definitively rejected — fall through and throw the 401
   }
 
   const body = await parseResponseBody(response);
@@ -151,7 +162,9 @@ async function gatewayFetch<T>(
   return body as T;
 }
 
-async function refreshAccessToken(): Promise<boolean> {
+type RefreshOutcome = 'ok' | 'hard_fail' | 'soft_fail';
+
+async function refreshAccessToken(): Promise<RefreshOutcome> {
   const traceId = generateTraceId();
 
   try {
@@ -171,8 +184,14 @@ async function refreshAccessToken(): Promise<boolean> {
 
     if (!response.ok) {
       tokenStore.clear();
-      refreshTokenStore.clear();
-      return false;
+      if (response.status === 401 || response.status === 403) {
+        // Server explicitly rejected the token — it is invalid or expired.
+        refreshTokenStore.clear();
+        return 'hard_fail';
+      }
+      // 5xx or other: backend is cold-starting or temporarily down.
+      // Keep the refresh token — the next attempt will succeed once it's up.
+      return 'soft_fail';
     }
 
     const body = await parseResponseBody(response);
@@ -183,16 +202,17 @@ async function refreshAccessToken(): Promise<boolean> {
     if (!payload?.access_token) {
       tokenStore.clear();
       refreshTokenStore.clear();
-      return false;
+      return 'hard_fail';
     }
 
     tokenStore.set(payload.access_token);
     // Persist rotated refresh token so the next reload can also survive.
     if (payload.refresh_token) refreshTokenStore.set(payload.refresh_token);
-    return true;
+    return 'ok';
   } catch {
+    // Network error (no response at all) — keep the refresh token for the next attempt.
     tokenStore.clear();
-    return false;
+    return 'soft_fail';
   }
 }
 

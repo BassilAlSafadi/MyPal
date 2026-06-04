@@ -103,6 +103,10 @@ func Load() (*GatewayConfig, error) {
 			AllowedOrigins: getEnvList("CORS_ALLOWED_ORIGINS", []string{
 				"http://localhost:5173",
 				"http://127.0.0.1:5173",
+				// Wildcard covers every Vercel preview and production URL for this
+				// account — no gateway redeploy needed when Vercel creates a new URL.
+				"https://*-solly2005s-projects.vercel.app",
+				"https://mypal.vercel.app",
 			}),
 		},
 	}

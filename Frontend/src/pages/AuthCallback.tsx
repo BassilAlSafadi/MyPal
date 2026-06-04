@@ -53,22 +53,28 @@ const AuthCallback = () => {
     // including iOS Safari which blocks cross-site httpOnly cookies.
     if (refreshToken) refreshTokenStore.set(refreshToken);
 
-    apiClient.get<any>('/api/v1/users/me')
-      .then(applyProfile)
-      .catch(() => {
-        // First attempt failed — HF C# space may be cold-starting.
-        // Retry once after 4 s before giving up.
-        setRetrying(true);
-        setTimeout(() => {
-          apiClient.get<any>('/api/v1/users/me')
-            .then(applyProfile)
-            .catch(() => {
-              tokenStore.clear();
-              refreshTokenStore.clear();
-              navigate('/login?error=session_failed', { replace: true });
-            });
-        }, 4000);
-      });
+    // Poll until the profile loads or we give up (~40 s total).
+    // HF spaces can take 30 s on a cold start; a single 4 s retry isn't enough.
+    const DELAYS = [3000, 5000, 8000, 10000, 14000]; // 3+5+8+10+14 = 40 s
+    let attempt = 0;
+
+    const tryFetch = () => {
+      apiClient.get<any>('/api/v1/users/me')
+        .then(applyProfile)
+        .catch(() => {
+          if (attempt < DELAYS.length) {
+            setRetrying(true);
+            setTimeout(tryFetch, DELAYS[attempt++]);
+          } else {
+            // Exhausted retries — the tokens themselves may still be valid,
+            // but the backend is unreachable. Clear tokens and ask to re-login.
+            tokenStore.clear();
+            refreshTokenStore.clear();
+            navigate('/login?error=session_failed', { replace: true });
+          }
+        });
+    };
+    tryFetch();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

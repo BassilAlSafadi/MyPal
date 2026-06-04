@@ -1,0 +1,23 @@
+name: Keep HF Spaces Alive
+
+on:
+  schedule:
+    # Every 5 minutes — prevents HF spaces from going idle between frontend pings.
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Go Gateway
+        run: |
+          curl -sf --max-time 10 \
+            https://solly2005-mypal-gateway.hf.space/health \
+            -o /dev/null || echo "gateway ping failed (may be waking up)"
+
+      - name: Ping C# API
+        run: |
+          curl -sf --max-time 15 \
+            https://solly2005-mypal-csharp.hf.space/ \
+            -o /dev/null || echo "csharp ping failed (may be waking up)"

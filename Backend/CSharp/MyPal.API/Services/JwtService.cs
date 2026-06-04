@@ -128,7 +128,7 @@ public class JwtService : IJwtService
 
     private TimeSpan ParseRefreshLifetime()
     {
-        var raw = _config["JWT_REFRESH_EXPIRY"] ?? _config["JWT_REFRESH_EXPIRY_MINUTES"] ?? "30d";
+        var raw = _config["JWT_REFRESH_EXPIRY"] ?? _config["JWT_REFRESH_EXPIRY_MINUTES"] ?? "365d";
         raw = raw.Trim().ToLowerInvariant();
 
         if (raw.EndsWith("d") && double.TryParse(raw[..^1], out var days))
