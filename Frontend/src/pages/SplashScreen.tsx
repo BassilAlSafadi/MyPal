@@ -8,6 +8,7 @@ const SplashScreen = () => {
   const navigate          = useNavigate();
   const isAuthenticated   = useAuthStore((s) => s.isAuthenticated);
   const isRestoring       = useAuthStore((s) => s.isRestoringSession);
+  const hasHydrated       = useAuthStore((s) => s.hasHydrated);
   const [progress, setProgress] = useState(0);
   const [fadeOut, setFadeOut]   = useState(false);
   const [minTimeDone, setMinTimeDone] = useState(false);
@@ -28,11 +29,11 @@ const SplashScreen = () => {
 
   // Navigate only once the minimum time has elapsed AND the session check is done.
   useEffect(() => {
-    if (!minTimeDone || isRestoring) return;
+    if (!minTimeDone || !hasHydrated || isRestoring) return;
     setFadeOut(true);
     const t = setTimeout(() => navigate(isAuthenticated ? '/home' : '/login'), 300);
     return () => clearTimeout(t);
-  }, [minTimeDone, isRestoring, isAuthenticated, navigate]);
+  }, [minTimeDone, hasHydrated, isRestoring, isAuthenticated, navigate]);
 
   return (
     <div

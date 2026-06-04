@@ -16,12 +16,14 @@ import { apiClient, tokenStore, refreshTokenStore, GatewayError } from '@/api/cl
  */
 const SessionInitializer = () => {
   const user                = useAuthStore((s) => s.user);
+  const hasHydrated         = useAuthStore((s) => s.hasHydrated);
   const setUser             = useAuthStore((s) => s.setUser);
   const logout              = useAuthStore((s) => s.logout);
   const setRestoringSession = useAuthStore((s) => s.setRestoringSession);
   const ranRef              = useRef(false);
 
   useEffect(() => {
+    if (!hasHydrated) return;
     if (ranRef.current) return;
     ranRef.current = true;
 
@@ -70,7 +72,7 @@ const SessionInitializer = () => {
       .finally(() => {
         setRestoringSession(false);
       });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hasHydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return null;
 };

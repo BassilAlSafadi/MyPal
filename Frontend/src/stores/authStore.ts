@@ -14,6 +14,7 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   isRestoringSession: boolean;
+  hasHydrated: boolean;
   error: string | null;
   personaProfile: PersonaProfile | null;
   needsOnboarding: boolean;
@@ -23,6 +24,7 @@ interface AuthState {
   logout: () => Promise<void>;
   setUser: (user: UserIdentity | null) => void;
   setRestoringSession: (v: boolean) => void;
+  setHasHydrated: (v: boolean) => void;
   completeOnboarding: (profile: PersonaProfile) => void;
   clearError: () => void;
 }
@@ -34,12 +36,14 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       isLoading: false,
       isRestoringSession: false,
+      hasHydrated: false,
       error: null,
       personaProfile: null,
       needsOnboarding: false,
 
       setUser: (user) => set({ user, isAuthenticated: !!user }),
       setRestoringSession: (v) => set({ isRestoringSession: v }),
+      setHasHydrated: (v) => set({ hasHydrated: v }),
       completeOnboarding: (profile) => set({ personaProfile: profile, needsOnboarding: false }),
 
       login: async (email, password) => {
@@ -70,13 +74,16 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'mypal-auth',
-      // isRestoringSession is intentionally excluded — it's transient, not persisted
+      // Runtime-only flags are intentionally excluded from persistence.
       partialize: (state) => ({
         user: state.user,
         isAuthenticated: state.isAuthenticated,
         personaProfile: state.personaProfile,
         needsOnboarding: state.needsOnboarding,
       }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     }
   )
 );

@@ -1,9 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
+import { refreshTokenStore } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Mail, Lock, ArrowRight, ShieldCheck, User, Globe, MapPin, Building2 } from 'lucide-react';
+import { Mail, Lock, ArrowRight, ShieldCheck, User, Globe, MapPin, Building2, Loader2 } from 'lucide-react';
 import LogoIcon from '@/components/LogoIcon';
 import { authService } from '@/services/authService';
 
@@ -40,6 +41,9 @@ const GoogleIcon = () => (
 const SignupScreen = () => {
   const navigate = useNavigate();
   const setUser = useAuthStore((s) => s.setUser);
+  const user = useAuthStore((s) => s.user);
+  const isRestoring = useAuthStore((s) => s.isRestoringSession);
+  const hasHydrated = useAuthStore((s) => s.hasHydrated);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -60,6 +64,20 @@ const SignupScreen = () => {
     email.includes('@') &&
     passwordChecks.minLength && passwordChecks.hasNumber && passwordChecks.hasSpecial &&
     country.length > 0 && stateProvince.trim().length > 0 && city.trim().length > 0;
+
+  useEffect(() => {
+    if (hasHydrated && user) {
+      navigate('/home', { replace: true });
+    }
+  }, [hasHydrated, user, navigate]);
+
+  if (!hasHydrated || isRestoring || user || (!user && !!refreshTokenStore.get())) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="w-6 h-6 animate-spin text-cobalt-light" />
+      </div>
+    );
+  }
 
   const handleGoogleSignup = () => {
     authService.loginWithGoogle();

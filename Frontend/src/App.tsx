@@ -25,11 +25,12 @@ import NotFound from "./pages/NotFound";
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const user               = useAuthStore((s) => s.user);
   const isRestoring        = useAuthStore((s) => s.isRestoringSession);
+  const hasHydrated        = useAuthStore((s) => s.hasHydrated);
   const hasRefreshToken    = !!refreshTokenStore.get();
 
   // While SessionInitializer is verifying the persisted session, hold here
   // instead of redirecting — prevents the flash-to-login on refresh.
-  if (isRestoring || (!user && hasRefreshToken)) {
+  if (!hasHydrated || isRestoring || (!user && hasRefreshToken)) {
     return (
       <div className="h-screen flex items-center justify-center bg-background">
         <Loader2 className="w-6 h-6 animate-spin text-cobalt-light" />
