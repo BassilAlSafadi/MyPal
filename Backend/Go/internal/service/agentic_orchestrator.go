@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -19,10 +21,12 @@ type AgenticRequest struct {
 
 // AgenticResponse is the structured response returned by the Node.js orchestrator.
 type AgenticResponse struct {
-	Result         string         `json:"result"`
-	TraceID        string         `json:"trace_id"`
-	ReasoningSteps []any          `json:"reasoning_steps,omitempty"`
-	State          map[string]any `json:"state,omitempty"`
+	Result         any              `json:"result"`
+	Error          any              `json:"error,omitempty"`
+	Products       []map[string]any `json:"products,omitempty"`
+	TraceID        string           `json:"trace_id"`
+	ReasoningSteps []any            `json:"reasoning_steps,omitempty"`
+	State          map[string]any   `json:"state,omitempty"`
 }
 
 // AgenticOrchestrator performs Go-side validation and then delegates LLM execution
@@ -36,7 +40,7 @@ type AgenticOrchestrator struct {
 // NewAgenticOrchestrator wires up the orchestrator to target the given Node.js base URL.
 func NewAgenticOrchestrator(nodeURL string) *AgenticOrchestrator {
 	return &AgenticOrchestrator{
-		nodeURL: nodeURL,
+		nodeURL: strings.TrimRight(strings.TrimSpace(nodeURL), "/"),
 		httpClient: &http.Client{
 			Timeout: 120 * time.Second,
 		},
@@ -107,7 +111,7 @@ func (a *AgenticOrchestrator) post(ctx context.Context, path string, payload any
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.nodeURL+path, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, joinURL(a.nodeURL, path), bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
@@ -119,12 +123,62 @@ func (a *AgenticOrchestrator) post(ctx context.Context, path string, payload any
 	}
 	defer resp.Body.Close()
 
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read node response from %s: %w", path, err)
+	}
+
+	trimmedBody := bytes.TrimSpace(rawBody)
+	if !json.Valid(trimmedBody) {
+		return nil, fmt.Errorf("node orchestrator returned non-JSON response %d on %s: %s", resp.StatusCode, path, compactBody(rawBody))
+	}
+
 	var result AgenticResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(trimmedBody, &result); err != nil {
 		return nil, fmt.Errorf("decode node response: %w", err)
 	}
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("node orchestrator error %d on %s: %s", resp.StatusCode, path, result.Result)
+		return nil, fmt.Errorf("node orchestrator error %d on %s: %s", resp.StatusCode, path, errorMessage(result, rawBody))
 	}
 	return &result, nil
+}
+
+func joinURL(baseURL, path string) string {
+	return strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(path, "/")
+}
+
+func errorMessage(result AgenticResponse, rawBody []byte) string {
+	for _, message := range []any{result.Result, result.Error} {
+		messageText := stringifyMessage(message)
+		if strings.TrimSpace(messageText) != "" {
+			return messageText
+		}
+	}
+	return compactBody(rawBody)
+}
+
+func stringifyMessage(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	default:
+		raw, err := json.Marshal(typed)
+		if err != nil {
+			return fmt.Sprint(typed)
+		}
+		return string(raw)
+	}
+}
+
+func compactBody(body []byte) string {
+	compact := strings.Join(strings.Fields(string(body)), " ")
+	if len(compact) > 300 {
+		return compact[:300] + "..."
+	}
+	if compact == "" {
+		return "<empty>"
+	}
+	return compact
 }
