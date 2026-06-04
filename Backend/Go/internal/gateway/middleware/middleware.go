@@ -32,16 +32,39 @@ import (
 )
 
 // CORS applies browser access policy for the public Gateway.
+// Entries in allowedOrigins may contain a single '*' wildcard (e.g.
+// "https://*.vercel.app") which matches any string in that position.
 func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
-	allowed := make(map[string]struct{}, len(allowedOrigins))
-	for _, origin := range allowedOrigins {
-		allowed[strings.TrimSpace(origin)] = struct{}{}
+	exact := make(map[string]struct{})
+	var wildcards []string
+
+	for _, o := range allowedOrigins {
+		o = strings.TrimSpace(o)
+		if strings.Contains(o, "*") {
+			wildcards = append(wildcards, o)
+		} else {
+			exact[o] = struct{}{}
+		}
+	}
+
+	originAllowed := func(origin string) bool {
+		if _, ok := exact[origin]; ok {
+			return true
+		}
+		for _, pattern := range wildcards {
+			idx := strings.Index(pattern, "*")
+			prefix, suffix := pattern[:idx], pattern[idx+1:]
+			if strings.HasPrefix(origin, prefix) && strings.HasSuffix(origin, suffix) {
+				return true
+			}
+		}
+		return false
 	}
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
-			if _, ok := allowed[origin]; ok {
+			if originAllowed(origin) {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Trace-ID, Idempotency-Key")
