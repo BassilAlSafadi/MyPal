@@ -12,6 +12,7 @@ const swaggerUi = require('swagger-ui-express');
 
 const agenticRoutes = require('./src/routes/agenticRoutes');
 const swaggerSpec = require('./src/swagger');
+const { startGrpcServer } = require('./src/grpc/server');
 
 const app = express();
 app.use(cors());
@@ -38,4 +39,10 @@ if (MONGO_URL) {
 app.use('/swagger', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use('/', agenticRoutes);
 
-app.listen(PORT, '0.0.0.0', () => console.log(`LLM orchestrator listening on ${PORT}`));
+const GRPC_PORT = process.env.NODE_GRPC_PORT || 5013;
+
+// Start gRPC server after Express is ready so self-calls can reach the REST API.
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`LLM orchestrator HTTP listening on ${PORT}`);
+  startGrpcServer(GRPC_PORT);
+});

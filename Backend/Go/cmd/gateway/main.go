@@ -6,9 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"mypal/api/go/internal/gateway/config"
-	"mypal/api/go/internal/gateway/messaging"
-	"mypal/api/go/internal/gateway/routing"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,6 +13,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"mypal/api/go/internal/gateway/config"
+	"mypal/api/go/internal/gateway/grpcclient"
+	"mypal/api/go/internal/gateway/messaging"
+	"mypal/api/go/internal/gateway/routing"
 )
 
 func main() {
@@ -31,13 +33,14 @@ func main() {
 
 	slog.Info("gateway: configuration loaded",
 		"port", cfg.Port,
-		"csharp_url", cfg.Upstreams.CSharpMainAPI,
-		"support_url", cfg.Upstreams.GoSupportService,
-		"orchestrator_url", cfg.Upstreams.NodeOrchestrator,
+		"csharp_grpc", cfg.Upstreams.CSharpGRPC,
+		"node_grpc", cfg.Upstreams.NodeGRPC,
+		"support_grpc", cfg.Upstreams.SupportGRPC,
 		"prodbert_url", cfg.Upstreams.PythonProdBERT,
 		"nats_url", cfg.Messaging.NATSURL,
 	)
 
+	// ── Postgres ──────────────────────────────────────────────────────────────
 	postgresURL := os.Getenv("POSTGRES_URL")
 	if postgresURL == "" {
 		slog.Error("gateway: POSTGRES_URL is required for outbox runtime")
@@ -59,12 +62,44 @@ func main() {
 	}
 	slog.Info("gateway: postgres connected")
 
+	// ── gRPC connections ──────────────────────────────────────────────────────
+	csharpConn, err := grpcclient.Dial(cfg.Upstreams.CSharpGRPC)
+	if err != nil {
+		slog.Error("gateway: failed to dial C# gRPC", "addr", cfg.Upstreams.CSharpGRPC, "err", err)
+		db.Close()
+		os.Exit(1)
+	}
+	defer csharpConn.Close()
+
+	nodeConn, err := grpcclient.Dial(cfg.Upstreams.NodeGRPC)
+	if err != nil {
+		slog.Error("gateway: failed to dial Node gRPC", "addr", cfg.Upstreams.NodeGRPC, "err", err)
+		db.Close()
+		csharpConn.Close()
+		os.Exit(1)
+	}
+	defer nodeConn.Close()
+
+	supportConn, err := grpcclient.Dial(cfg.Upstreams.SupportGRPC)
+	if err != nil {
+		slog.Error("gateway: failed to dial Support gRPC", "addr", cfg.Upstreams.SupportGRPC, "err", err)
+		db.Close()
+		csharpConn.Close()
+		nodeConn.Close()
+		os.Exit(1)
+	}
+	defer supportConn.Close()
+
+	slog.Info("gateway: gRPC connections established",
+		"csharp", cfg.Upstreams.CSharpGRPC,
+		"node", cfg.Upstreams.NodeGRPC,
+		"support", cfg.Upstreams.SupportGRPC,
+	)
+
+	// ── Messaging (optional) ──────────────────────────────────────────────────
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
 
-	// Messaging (NATS + outbox/reconciliation workers) is optional. When disabled
-	// the gateway still serves all proxy routes; only eventual-consistency workers
-	// for the saga/outbox flow are off. This lets it run without a NATS service.
 	var workerRuntime *messaging.WorkerRuntime
 	closeMessaging := func() {}
 	if cfg.Messaging.Enabled {
@@ -92,7 +127,7 @@ func main() {
 		}
 		closeMessaging = func() { eventBus.Close() }
 	} else {
-		slog.Info("gateway: messaging disabled (MESSAGING_ENABLED=false) — NATS and outbox/reconciliation workers are off")
+		slog.Info("gateway: messaging disabled — NATS and outbox/reconciliation workers are off")
 	}
 
 	readiness := func(ctx context.Context) error {
@@ -107,8 +142,13 @@ func main() {
 		return nil
 	}
 
+	// ── HTTP server ───────────────────────────────────────────────────────────
+	csharp := grpcclient.NewCSharpConn(csharpConn, cfg.Auth.InternalServiceToken)
+	node := grpcclient.NewNodeConn(nodeConn, cfg.Auth.InternalServiceToken)
+	support := grpcclient.NewSupportConn(supportConn, cfg.Auth.InternalServiceToken)
+
 	mux := http.NewServeMux()
-	handler := routing.Register(mux, cfg, db, readiness)
+	handler := routing.Register(mux, cfg, db, readiness, csharp, node, support)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,

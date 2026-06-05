@@ -29,12 +29,16 @@ type GatewayTimeouts struct {
 	Default          time.Duration
 }
 
-// Upstreams holds all internal service base URLs.
+// Upstreams holds all internal service base URLs (HTTP) and gRPC addresses.
 type Upstreams struct {
 	CSharpMainAPI    string
 	GoSupportService string
 	NodeOrchestrator string
 	PythonProdBERT   string
+	// gRPC addresses (host:port, no scheme).
+	CSharpGRPC  string
+	NodeGRPC    string
+	SupportGRPC string
 }
 
 // AuthConfig holds JWT and internal service auth config.
@@ -82,6 +86,10 @@ func Load() (*GatewayConfig, error) {
 			GoSupportService: getEnv("GO_SUPPORT_URL", "http://localhost:5001"),
 			NodeOrchestrator: getEnv("NODE_ORCHESTRATOR_URL", "http://localhost:5003"),
 			PythonProdBERT:   getEnv("PRODBERT_URL", "http://localhost:8001"),
+			// gRPC addresses (no scheme, just host:port)
+			CSharpGRPC:  getEnv("CSHARP_GRPC_ADDR", "localhost:5010"),
+			NodeGRPC:    getEnv("NODE_GRPC_ADDR", "localhost:5013"),
+			SupportGRPC: getEnv("SUPPORT_GRPC_ADDR", "localhost:5011"),
 		},
 		Auth: AuthConfig{
 			JWTSecret:            os.Getenv("JWT_SECRET"),

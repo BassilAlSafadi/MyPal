@@ -21,10 +21,17 @@ LoadDotEnv(Directory.GetCurrentDirectory());
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddEnvironmentVariables();
 
-// Honour Render/Heroku-style $PORT so the container binds to the platform-assigned port.
-var renderPort = Environment.GetEnvironmentVariable("PORT");
-if (!string.IsNullOrWhiteSpace(renderPort))
-    builder.WebHost.UseUrls($"http://0.0.0.0:{renderPort}");
+// HTTP port for the existing REST API (used by browser-facing flows and by the
+// gRPC service self-calls).  gRPC listens on GRPC_PORT (default 5010) over
+// plain HTTP/2 — no TLS needed since it's localhost-only.
+var httpPort  = int.Parse(Environment.GetEnvironmentVariable("PORT")      ?? "5000");
+var grpcPort  = int.Parse(Environment.GetEnvironmentVariable("GRPC_PORT") ?? "5010");
+
+builder.WebHost.ConfigureKestrel(kestrel =>
+{
+    kestrel.ListenAnyIP(httpPort, o => o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1);
+    kestrel.ListenAnyIP(grpcPort, o => o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2);
+});
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
@@ -77,6 +84,12 @@ if (googleConfigured)
 
 builder.Services.AddAuthorization();
 
+// ── gRPC services ─────────────────────────────────────────────────────────────
+// Each gRPC service class uses IHttpClientFactory to self-call the REST handlers
+// on the same Kestrel HTTP port, so all business logic stays in one place.
+builder.Services.AddGrpc();
+builder.Services.AddHttpClient("grpc-internal"); // used by gRPC services for self-calls
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -112,6 +125,17 @@ app.UseSwagger();
 app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "MyPal API v1"));
 app.UseAuthentication();
 app.UseAuthorization();
+
+// ── gRPC service endpoints (bound on grpcPort via Kestrel HTTP/2) ─────────────
+app.MapGrpcService<MyPal.API.GrpcServices.AuthGrpcService>();
+app.MapGrpcService<MyPal.API.GrpcServices.UserGrpcService>();
+app.MapGrpcService<MyPal.API.GrpcServices.ProductGrpcService>();
+app.MapGrpcService<MyPal.API.GrpcServices.OrderGrpcService>();
+app.MapGrpcService<MyPal.API.GrpcServices.CartGrpcService>();
+app.MapGrpcService<MyPal.API.GrpcServices.WalletGrpcService>();
+app.MapGrpcService<MyPal.API.GrpcServices.WishlistGrpcService>();
+app.MapGrpcService<MyPal.API.GrpcServices.NotificationGrpcService>();
+app.MapGrpcService<MyPal.API.GrpcServices.ListingGrpcService>();
 
 // ─── Internal-service gate (defense in depth) ────────────────────────────────
 // Every request reaches C# through the Go gateway, which injects X-Internal-Token.
