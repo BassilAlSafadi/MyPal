@@ -88,7 +88,11 @@ builder.Services.AddAuthorization();
 // Each gRPC service class uses IHttpClientFactory to self-call the REST handlers
 // on the same Kestrel HTTP port, so all business logic stays in one place.
 builder.Services.AddGrpc();
-builder.Services.AddHttpClient("grpc-internal"); // used by gRPC services for self-calls
+// UseCookies must be false so Set-Cookie headers from self-call responses are
+// accessible in resp.Headers — otherwise SocketsHttpHandler silently stores them
+// in its internal cookie container and they are never seen by the gRPC service.
+builder.Services.AddHttpClient("grpc-internal")
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { UseCookies = false });
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>

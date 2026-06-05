@@ -72,6 +72,9 @@ func buildEnvelope(r *http.Request, pathParams map[string]string, internalToken 
 		"user_email":     r.Header.Get(auth.HeaderUserEmail),
 		"user_roles":     r.Header.Get(auth.HeaderUserRoles),
 		"internal_token": internalToken,
+		// Forward the raw Cookie header so backends can read httpOnly cookies
+		// (e.g. mypal_refresh for the token-rotation fallback path).
+		"cookie": r.Header.Get("Cookie"),
 	}
 	return structpb.NewStruct(env)
 }

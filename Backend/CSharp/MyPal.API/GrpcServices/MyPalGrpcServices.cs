@@ -81,6 +81,10 @@ public abstract class MyPalGrpcBase
         if (!string.IsNullOrEmpty(userId))        req.Headers.TryAddWithoutValidation("X-User-Id",        userId);
         if (!string.IsNullOrEmpty(userEmail))     req.Headers.TryAddWithoutValidation("X-User-Email",     userEmail);
         if (!string.IsNullOrEmpty(userRoles))     req.Headers.TryAddWithoutValidation("X-User-Roles",     userRoles);
+        // Forward the original Cookie header so httpOnly cookie fallbacks work
+        // (e.g. mypal_refresh read by the /refresh and /bootstrap-session endpoints).
+        var cookie = GetStr(envelope, "cookie");
+        if (!string.IsNullOrEmpty(cookie))        req.Headers.TryAddWithoutValidation("Cookie", cookie);
 
         // Serialize body for mutating verbs.
         if ((method == "POST" || method == "PUT" || method == "PATCH") && bodyStruct != null)
