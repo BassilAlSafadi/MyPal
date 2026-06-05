@@ -2,22 +2,29 @@ name: Keep HF Spaces Alive
 
 on:
   schedule:
-    # Every 5 minutes — prevents HF spaces from going idle between frontend pings.
-    - cron: '*/5 * * * *'
+    # Every 4 minutes — HF free spaces sleep after ~30 min of no traffic.
+    # Pinging every 4 min keeps all three spaces warm at all times.
+    - cron: '*/4 * * * *'
   workflow_dispatch:
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Go Gateway
+      - name: Ping Gateway (gateway + bundled C#)
         run: |
-          curl -sf --max-time 10 \
+          curl -sf --max-time 15 \
             https://solly2005-mypal-gateway.hf.space/health \
-            -o /dev/null || echo "gateway ping failed (may be waking up)"
+            -o /dev/null && echo "gateway ok" || echo "gateway ping failed (may be waking up)"
 
-      - name: Ping C# API
+      - name: Ping Node Orchestrator
+        run: |
+          curl -sf --max-time 15 \
+            https://solly2005-mypal-node.hf.space/health \
+            -o /dev/null && echo "node ok" || echo "node ping failed (may be waking up)"
+
+      - name: Ping C# OAuth Space
         run: |
           curl -sf --max-time 15 \
             https://solly2005-mypal-csharp.hf.space/ \
-            -o /dev/null || echo "csharp ping failed (may be waking up)"
+            -o /dev/null && echo "csharp ok" || echo "csharp ping failed (may be waking up)"

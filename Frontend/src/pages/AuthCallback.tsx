@@ -56,41 +56,35 @@ const AuthCallback = () => {
     if (refreshToken) refreshTokenStore.set(refreshToken);
     bootstrapGatewaySession(accessToken);
 
-    // Poll until the profile loads or we give up (~40 s total).
-    // HF spaces can take 30 s on a cold start; a single 4 s retry isn't enough.
-    const DELAYS = [3000, 5000, 8000, 10000, 14000]; // 3+5+8+10+14 = 40 s
+    // Poll until the profile loads or we give up (~90 s total).
+    // HF spaces can take 30 s to wake + 30 s for C# to start = ~60 s worst case.
+    // All errors (including 401 during cold start) are treated as transient —
+    // only after exhausting every retry do we fall back to the JWT-derived user.
+    // We NEVER redirect to /login here: if the server eventually rejects the
+    // token the next authenticated API call will handle that via the refresh flow.
+    const DELAYS = [3000, 5000, 8000, 10000, 12000, 15000, 18000, 20000]; // ~91 s
     let attempt = 0;
 
     const tryFetch = () => {
       apiClient.get<any>('/api/v1/users/me')
         .then(applyProfile)
-        .catch((err) => {
-          const isAuthError =
-            (err instanceof GatewayError && (err.status === 401 || err.status === 403)) ||
-            (typeof err?.status === 'number' && (err.status === 401 || err.status === 403));
-
-          if (isAuthError) {
-            tokenStore.clear();
-            refreshTokenStore.clear();
-            navigate('/login?error=session_failed', { replace: true });
-            return;
-          }
-
+        .catch(() => {
           if (attempt < DELAYS.length) {
             setRetrying(true);
             setTimeout(tryFetch, DELAYS[attempt++]);
           } else {
+            // Exhausted retries — build a minimal user from the JWT so the
+            // session survives. The next successful API call will refresh it.
             const fallbackUser = userFromAccessToken(accessToken);
             if (fallbackUser) {
               setUser(fallbackUser);
               navigate('/home', { replace: true });
-              return;
+            } else {
+              // JWT itself is unreadable — token is garbage, must re-auth.
+              tokenStore.clear();
+              refreshTokenStore.clear();
+              navigate('/login', { replace: true });
             }
-            // Exhausted profile retries. Keep the OAuth session alive if the
-            // issued access token can identify the user.
-            tokenStore.clear();
-            refreshTokenStore.clear();
-            navigate('/login?error=session_failed', { replace: true });
           }
         });
     };

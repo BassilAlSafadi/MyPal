@@ -51,23 +51,33 @@ const SessionInitializer = () => {
         });
       })
       .catch((err) => {
-        // Only wipe the session if the server explicitly rejected authentication.
-        // Network errors (backend cold-start, HF space waking up, no internet)
-        // must NOT log the user out — they should stay on their last screen.
-        const isAuthError =
-          (err instanceof GatewayError && (err.status === 401 || err.status === 403)) ||
-          (typeof err?.status === 'number' && (err.status === 401 || err.status === 403));
+        // Explicit logout is the ONLY action that clears the session.
+        // A restore-time error — whether 401, 5xx, or network failure — must
+        // never evict the user. The refresh flow inside apiClient already
+        // tried rotating the token; if that also failed the user will see
+        // auth errors on the next real action and can handle it then.
+        //
+        // Why we don't clear tokens here: clearing the refresh token destroys
+        // cross-reload persistence. The user wakes the app, sees a flash of
+        // their session, then gets kicked to login — that's the bug we're fixing.
+        const isNetworkOrServerError =
+          !(err instanceof GatewayError) ||
+          err.status >= 500 ||
+          err.status === 0;
 
-        if (isAuthError) {
-          tokenStore.clear();
-          // A restore-time 401 should not destroy the persisted browser session.
-          // Explicit logout remains the only frontend path that clears the user.
-          refreshTokenStore.clear();
-        } else if (!user) {
+        if (!user) {
+          // No persisted user at all — try to build one from the refresh token
+          // JWT claims so the user isn't stuck on a blank screen.
           const fallbackUser = userFromRefreshToken(refreshTokenStore.get());
           if (fallbackUser) setUser(fallbackUser);
+        } else if (!isNetworkOrServerError) {
+          // Got a definitive auth rejection (401/403) AND there was already a
+          // persisted user. Clear in-memory tokens but keep the user in the
+          // store — they can still browse cached data and the next action will
+          // prompt a proper re-auth via the refresh flow.
+          tokenStore.clear();
         }
-        // else: keep persisted user — the backend is just unavailable right now
+        // else: server error / network down — leave everything intact.
       })
       .finally(() => {
         setRestoringSession(false);
