@@ -152,7 +152,12 @@ app.Use(async (context, next) =>
     var path = context.Request.Path.Value ?? "";
     var exempt = path == "/"
         || path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/api/auth/google", StringComparison.OrdinalIgnoreCase);
+        || path.StartsWith("/api/auth/google", StringComparison.OrdinalIgnoreCase)
+        // gRPC service paths all begin with "/mypal." (the proto package name).
+        // They arrive on the HTTP/2 gRPC port from the gateway — not from the browser —
+        // so they never carry X-Internal-Token as an HTTP header.
+        // The gateway-to-gRPC trust is implicit: the gRPC port is localhost-only.
+        || path.StartsWith("/mypal.", StringComparison.OrdinalIgnoreCase);
 
     if (!exempt && !string.IsNullOrEmpty(internalServiceToken))
     {
