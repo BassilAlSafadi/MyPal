@@ -11,30 +11,21 @@
 #   /Dockerfile, /start.sh, /README.md
 
 # ── Stage 1: build the Go gateway (static binary) ────────────────────────────
+# No protoc needed: the gateway uses structpb (a well-known type) directly
+# instead of generated proto stubs, so zero code-generation steps required.
 FROM golang:1.24-alpine AS go-build
 ENV GOTOOLCHAIN=auto CGO_ENABLED=0
 WORKDIR /src
-
-# Install protoc and the Go gRPC code generators so the support binary can be
-# built with gRPC support even if generated files aren't committed.
-RUN apk add --no-cache protobuf protobuf-dev
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-
-COPY proto/ /proto/
 COPY go/ .
-
 RUN go mod download
 RUN go build -o /out/gateway ./cmd/gateway
 
 # ── Stage 2: build & publish the C# API ──────────────────────────────────────
+# Grpc.Tools reads Protos\mypal.proto relative to the .csproj — that file is
+# already inside csharp/MyPal.API/Protos/ so no extra COPY needed.
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS dotnet-build
 WORKDIR /src
-# Copy proto alongside the C# source so Grpc.Tools can find it at build time.
-COPY proto/ /proto/
 COPY csharp/ .
-# Grpc.Tools looks for the proto relative to the .proto Include path in the csproj.
-# The csproj references Protos\mypal.proto, which we already copied there.
 RUN dotnet publish "MyPal.API/MyPal.API.csproj" -c Release -o /out/csharp
 
 # ── Final: .NET runtime hosting both processes ────────────────────────────────

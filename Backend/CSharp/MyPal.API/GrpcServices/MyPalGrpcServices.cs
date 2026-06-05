@@ -22,7 +22,7 @@
 using System.Text;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
-using Mypal;
+using MyPal.API.GrpcServices.Proto;
 
 namespace MyPal.API.GrpcServices;
 
