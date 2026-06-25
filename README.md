@@ -2,7 +2,6 @@
 
 **MyPal** is a mobile-first, AI-native marketplace where every account is both a **buyer and a seller**. Users discover products through natural-language AI search, list their own items in seconds, pay from an in-app wallet, and check out through a resilient, event-driven backend.
 
-### 🔗 Live App: **[mypal-eta.vercel.app](https://mypal-eta.vercel.app)**
 
 > Sign up with email + password or continue with Google. New accounts get a welcome wallet balance to try the full buy/sell/checkout flow.
 
