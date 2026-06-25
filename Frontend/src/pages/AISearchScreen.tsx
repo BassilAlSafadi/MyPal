@@ -15,6 +15,7 @@ import { ProductPreviewDrawer, ProductPreview } from '@/components/ProductPrevie
 import ProductImage from '@/components/ProductImage';
 import { LinkThumb } from '@/components/LinkThumb';
 import { Markdown } from '@/components/Markdown';
+import { normalizeChatMarkdown } from '@/lib/chatMarkdown';
 import { PRODUCT_IMAGE_FALLBACK } from '@/lib/productImage';
 import { toast } from 'sonner';
 
@@ -319,9 +320,12 @@ const SearchPanel = () => {
     setInput('');
     setIsTyping(true);
 
+    let internalResults: Awaited<ReturnType<typeof searchService.performInternalSearch>> = [];
+    let internalPayload: Array<{ id: string; title: string; category?: string }> = [];
+
     try {
-      const internalResults = await searchService.performInternalSearch(query);
-      const internalPayload = internalResults.slice(0, 5).map(r => ({
+      internalResults = await searchService.performInternalSearch(query);
+      internalPayload = internalResults.slice(0, 5).map(r => ({
         id: r.id, title: r.title, category: r.category,
       }));
 
@@ -379,7 +383,52 @@ const SearchPanel = () => {
     } catch (err: any) {
       // Surface the daily Pro quota limit clearly instead of a generic failure.
       const status = err?.status;
-      const isQuota = status === 429 || /quota/i.test(err?.message || '');
+      const messageText = String(err?.message || '');
+      const isQuota = /quota/i.test(messageText) || /quota/i.test(String(err?.code || ''));
+
+      if (!isQuota) {
+        try {
+          const fallbackModel: SearchModel = requestModel === 'pro' ? 'fast' : requestModel;
+          if (requestModel === 'pro') {
+            selectedModelRef.current = 'fast';
+            setModel('fast');
+            toast.info('Pro chat is temporarily busy - running this with Fast.');
+          } else {
+            toast.info('Chat history is temporarily busy - returning a one-off answer.');
+          }
+
+          const fallbackResult = await searchService.performAISearch(query, fallbackModel, internalResults);
+          const fallbackText = fallbackResult.text || (
+            internalResults.length > 0
+              ? `Found ${internalResults.length} matching product${internalResults.length === 1 ? '' : 's'} in MyPal for "${query}".`
+              : `No exact MyPal match for "${query}". Try again in a moment for a deeper search.`
+          );
+
+          setMessages(p => [...p, {
+            id: `a-${Date.now()}`,
+            type: 'ai',
+            content: fallbackText,
+            model: fallbackModel,
+            mypalProducts: internalPayload.length > 0 ? internalPayload : undefined,
+            products: fallbackResult.products.length > 0 ? fallbackResult.products : undefined,
+            suggestions: ['Tell me more', 'Show cheaper alternatives', 'Compare options'],
+            timestamp: new Date(),
+          }]);
+          return;
+        } catch (fallbackErr: any) {
+          const fallbackMessage = String(fallbackErr?.message || '');
+          const isRateLimited = fallbackErr?.status === 429 || status === 429 || /rate limit/i.test(fallbackMessage) || /rate limit/i.test(messageText);
+          const content = isRateLimited
+            ? 'AI is temporarily rate-limited. Please try again in a minute.'
+            : 'Search failed. Please try again in a moment.';
+          setMessages(p => [...p, {
+            id: `err-${Date.now()}`, type: 'ai', content,
+            model: requestModel, timestamp: new Date(),
+          }]);
+          return;
+        }
+      }
+
       const content = isQuota
         ? `⚡ You've used all ${quota.limit} Pro searches for today. Pro resets at midnight — Fast search is still available.`
         : 'Search failed. Please try again in a moment.';
@@ -564,7 +613,7 @@ const SearchPanel = () => {
                     </div>
                   ) : (
                     <div className="text-sm text-foreground leading-relaxed w-full">
-                      <Markdown content={msg.content} />
+                      <Markdown content={normalizeChatMarkdown(msg.content)} />
                     </div>
                   )}
 

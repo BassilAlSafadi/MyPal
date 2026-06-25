@@ -34,8 +34,8 @@ func main() {
 	slog.Info("gateway: configuration loaded",
 		"port", cfg.Port,
 		"csharp_grpc", cfg.Upstreams.CSharpGRPC,
-		"node_grpc", cfg.Upstreams.NodeGRPC,
-		"support_grpc", cfg.Upstreams.SupportGRPC,
+		"node_url", cfg.Upstreams.NodeOrchestrator,
+		"support_url", cfg.Upstreams.GoSupportService,
 		"prodbert_url", cfg.Upstreams.PythonProdBERT,
 		"nats_url", cfg.Messaging.NATSURL,
 	)
@@ -62,7 +62,10 @@ func main() {
 	}
 	slog.Info("gateway: postgres connected")
 
-	// ── gRPC connections ──────────────────────────────────────────────────────
+	// ── gRPC — C# only (same container, localhost) ────────────────────────────
+	// Node.js and Go Support run in separate HF Spaces and are only reachable
+	// via their public HTTP URLs. gRPC across HF Space boundaries is not
+	// supported (only port 7860 is exposed per Space).
 	csharpConn, err := grpcclient.Dial(cfg.Upstreams.CSharpGRPC)
 	if err != nil {
 		slog.Error("gateway: failed to dial C# gRPC", "addr", cfg.Upstreams.CSharpGRPC, "err", err)
@@ -70,31 +73,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer csharpConn.Close()
-
-	nodeConn, err := grpcclient.Dial(cfg.Upstreams.NodeGRPC)
-	if err != nil {
-		slog.Error("gateway: failed to dial Node gRPC", "addr", cfg.Upstreams.NodeGRPC, "err", err)
-		db.Close()
-		csharpConn.Close()
-		os.Exit(1)
-	}
-	defer nodeConn.Close()
-
-	supportConn, err := grpcclient.Dial(cfg.Upstreams.SupportGRPC)
-	if err != nil {
-		slog.Error("gateway: failed to dial Support gRPC", "addr", cfg.Upstreams.SupportGRPC, "err", err)
-		db.Close()
-		csharpConn.Close()
-		nodeConn.Close()
-		os.Exit(1)
-	}
-	defer supportConn.Close()
-
-	slog.Info("gateway: gRPC connections established",
-		"csharp", cfg.Upstreams.CSharpGRPC,
-		"node", cfg.Upstreams.NodeGRPC,
-		"support", cfg.Upstreams.SupportGRPC,
-	)
+	slog.Info("gateway: C# gRPC connection ready", "addr", cfg.Upstreams.CSharpGRPC)
 
 	// ── Messaging (optional) ──────────────────────────────────────────────────
 	workerCtx, workerCancel := context.WithCancel(context.Background())
@@ -144,11 +123,9 @@ func main() {
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
 	csharp := grpcclient.NewCSharpConn(csharpConn, cfg.Auth.InternalServiceToken)
-	node := grpcclient.NewNodeConn(nodeConn, cfg.Auth.InternalServiceToken)
-	support := grpcclient.NewSupportConn(supportConn, cfg.Auth.InternalServiceToken)
 
 	mux := http.NewServeMux()
-	handler := routing.Register(mux, cfg, db, readiness, csharp, node, support)
+	handler := routing.Register(mux, cfg, db, readiness, csharp)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,

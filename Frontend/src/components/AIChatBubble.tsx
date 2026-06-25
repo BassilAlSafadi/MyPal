@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { MessageCircle, X, Send, Sparkles, Zap, RotateCcw, ChevronDown } from 'lucide-react';
 import { Markdown } from '@/components/Markdown';
 import { searchService } from '@/services/searchService';
+import { normalizeChatMarkdown } from '@/lib/chatMarkdown';
 import { cn } from '@/lib/utils';
 
 interface Message {
@@ -207,7 +208,7 @@ const AIChatBubble = () => {
                             <div className="w-1.5 h-1.5 rounded-full bg-cobalt-light animate-bounce [animation-delay:300ms]" />
                           </div>
                         ) : (
-                          <Markdown content={msg.content} size="sm" />
+                          <Markdown content={normalizeChatMarkdown(msg.content)} size="sm" />
                         )}
                       </div>
                     )}

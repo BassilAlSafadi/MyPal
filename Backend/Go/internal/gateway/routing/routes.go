@@ -1,12 +1,13 @@
 // Package routing registers all gateway routes and applies middleware chains.
-// Internal backend communication uses gRPC; the public surface stays REST/JSON.
+// C# uses same-container gRPC; Node.js and Go Support use HTTP proxying.
+// The public surface stays REST/JSON.
 //
 // Execution order per route group:
 //
-//	Public:   CorrelationID → Logging → PanicRecovery → RateLimit → Timeout → Observability → gRPC handler
-//	Auth:     CorrelationID → Logging → PanicRecovery → JWTValidation → RateLimit → Timeout → Observability → gRPC handler
-//	Search:   CorrelationID → Logging → PanicRecovery → JWTValidation → SSQLValidation → RateLimit → Timeout → Observability → SearchHandler
-//	Internal: CorrelationID → Logging → PanicRecovery → InternalAuth → Timeout → gRPC handler
+//	Public:   CorrelationID -> Logging -> PanicRecovery -> RateLimit -> Timeout -> Observability -> handler
+//	Auth:     CorrelationID -> Logging -> PanicRecovery -> JWTValidation -> RateLimit -> Timeout -> Observability -> handler
+//	Search:   CorrelationID -> Logging -> PanicRecovery -> JWTValidation -> SSQLValidation -> RateLimit -> Timeout -> Observability -> SearchHandler
+//	Internal: CorrelationID -> Logging -> PanicRecovery -> InternalAuth -> Timeout -> proxy
 package routing
 
 import (
@@ -35,21 +36,18 @@ const gatewayVersion = "1.0.0-phase2-grpc"
 type ReadinessCheck func(ctx context.Context) error
 
 // Register wires all routes and returns the root handler.
-// csharp, node, support carry the gRPC connections to each backend.
 func Register(
 	mux *http.ServeMux,
 	cfg *gconfig.GatewayConfig,
 	db *pgxpool.Pool,
 	readiness ReadinessCheck,
 	csharp *grpcclient.CSharpConn,
-	node *grpcclient.NodeConn,
-	support *grpcclient.SupportConn,
 ) http.Handler {
 	middleware.ConfigureRateLimit(cfg.RateLimit.RequestsPerSecond, cfg.RateLimit.BurstSize)
 
 	RegisterSwagger(mux)
 
-	handler := buildRoutes(mux, cfg, db, readiness, csharp, node, support)
+	handler := buildRoutes(mux, cfg, db, readiness, csharp)
 	return middleware.CORS(cfg.CORS.AllowedOrigins)(stripIdentityHeaders(handler))
 }
 
@@ -68,9 +66,17 @@ func buildRoutes(
 	db *pgxpool.Pool,
 	readiness ReadinessCheck,
 	csharp *grpcclient.CSharpConn,
-	node *grpcclient.NodeConn,
-	support *grpcclient.SupportConn,
 ) http.Handler {
+	nodeProxy := &proxy.Director{
+		BaseURL:       cfg.Upstreams.NodeOrchestrator,
+		Timeout:       cfg.Timeout.NodeOrchestrator,
+		InternalToken: cfg.Auth.InternalServiceToken,
+	}
+	supportProxy := &proxy.Director{
+		BaseURL:       cfg.Upstreams.GoSupportService,
+		Timeout:       cfg.Timeout.GoSupport,
+		InternalToken: cfg.Auth.InternalServiceToken,
+	}
 
 	// ── Middleware stacks ─────────────────────────────────────────────────────
 	base := middleware.Chain(
@@ -131,14 +137,6 @@ func buildRoutes(
 	cs := csharp.Conn()
 	csUp := csharp.Upstream()
 	csTok := csharp.InternalToken()
-
-	nd := node.Conn()
-	ndUp := node.Upstream()
-	ndTok := node.InternalToken()
-
-	sp := support.Conn()
-	spUp := support.Upstream()
-	spTok := support.InternalToken()
 
 	// ── Gateway meta ──────────────────────────────────────────────────────────
 
@@ -301,96 +299,61 @@ func buildRoutes(
 	mux.Handle("GET /api/v1/search", searchStack(search.Handler(searchCfg)))
 	mux.Handle("POST /api/v1/search", searchStack(search.Handler(searchCfg)))
 
-	// ── Agentic AI specific endpoints → Node (gRPC) ───────────────────────────
+	// Agentic AI specific endpoints -> Node HTTP proxy.
 
 	mux.Handle("POST /api/v1/ai/agentic/deep-search", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.AiDeepSearch, ndTok)))
+		nodeProxy.HandlerWithRewrite("/api/v1/ai/agentic", "/ai")))
 
 	mux.Handle("POST /api/v1/ai/agentic/fast-search", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.AiFastSearch, ndTok)))
+		nodeProxy.HandlerWithRewrite("/api/v1/ai/agentic", "/ai")))
 
 	mux.Handle("POST /api/v1/ai/agentic/translate", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.AiTranslate, ndTok)))
+		nodeProxy.HandlerWithRewrite("/api/v1/ai/agentic", "/ai")))
 
 	mux.Handle("POST /api/v1/ai/agentic/summarize", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.AiSummarize, ndTok)))
+		nodeProxy.HandlerWithRewrite("/api/v1/ai/agentic", "/ai")))
 
 	mux.Handle("POST /api/v1/ai/agentic/recommend", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.AiRecommend, ndTok)))
+		nodeProxy.HandlerWithRewrite("/api/v1/ai/agentic", "/ai")))
 
 	mux.Handle("POST /api/v1/ai/agentic/product-ask", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.AiProductAsk, ndTok)))
+		nodeProxy.HandlerWithRewrite("/api/v1/ai/agentic/product-ask", "/ai/product/ask")))
 
 	mux.Handle("POST /api/v1/ai/agentic/clean", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.AiCleanText, ndTok)))
+		nodeProxy.HandlerWithRewrite("/api/v1/ai/agentic/clean", "/ai/scraped/clean")))
 
 	mux.Handle("POST /api/v1/ai/agentic/seller-analyze", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.SellerAnalyze, ndTok)))
+		nodeProxy.HandlerWithRewrite("/api/v1/ai/agentic/seller-analyze", "/ai/seller/analyze")))
 
 	// AI quota endpoints
 	mux.Handle("GET /api/v1/ai/agentic/deep-search/quota", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.AiDeepSearchQuota, ndTok)))
+		nodeProxy.HandlerWithRewrite("/api/v1/ai/agentic", "/ai")))
 
 	mux.Handle("GET /api/v1/ai/agentic/global-search/quota", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.AiGlobalSearchQuota, ndTok)))
+		nodeProxy.HandlerWithRewrite("/api/v1/ai/agentic", "/ai")))
 
-	// ── Chat threads → Node (gRPC) ────────────────────────────────────────────
+	// Node.js Orchestrator routes -> HTTP proxy.
 
-	mux.Handle("POST /api/v1/ai/threads", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.ChatCreate, ndTok)))
+	mux.Handle("/api/v1/ai/summaries/", aiAuthenticated(
+		nodeProxy.HandlerWithRewrite("/api/v1/ai", "")))
+	mux.Handle("/api/v1/ai/", aiAuthenticated(
+		nodeProxy.Handler("/api/v1")))
+	mux.Handle("/api/v1/agent/", aiAuthenticated(
+		nodeProxy.Handler("/api/v1")))
+	mux.Handle("/api/v1/seller/", aiAuthenticated(
+		nodeProxy.Handler("/api/v1")))
+	mux.Handle("/api/v1/seller-report/", aiAuthenticated(
+		nodeProxy.Handler("/api/v1")))
 
-	mux.Handle("GET /api/v1/ai/threads", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.ChatList, ndTok)))
-
-	mux.Handle("GET /api/v1/ai/threads/{id}", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.ChatGet, ndTok, "id")))
-
-	mux.Handle("DELETE /api/v1/ai/threads/{id}", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.ChatDelete, ndTok, "id")))
-
-	mux.Handle("POST /api/v1/ai/threads/{id}/messages", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.ChatSendMessage, ndTok, "id")))
-
-	// AI feature history
-	mux.Handle("GET /api/v1/ai/history/{feature}", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.HistoryGet, ndTok, "feature")))
-
-	// Recommendations
-	mux.Handle("GET /api/v1/ai/recommend/me", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.AiGetRecommendations, ndTok)))
-
-	// ── Seller analytics → Node (gRPC) ───────────────────────────────────────
-
-	mux.Handle("POST /api/v1/ai/summaries/map", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.SellerMapSummaries, ndTok)))
-
-	mux.Handle("POST /api/v1/ai/summaries/reduce", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.SellerReduceSummaries, ndTok)))
-
-	mux.Handle("POST /api/v1/seller/listing/analyze", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.SellerAnalyzeListing, ndTok)))
-
-	mux.Handle("POST /api/v1/seller/report/generate", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.SellerGenerateReport, ndTok)))
-
-	mux.Handle("GET /api/v1/seller-report/{sellerId}", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.SellerGetReport, ndTok, "sellerId")))
-
-	mux.Handle("POST /api/v1/agent/orchestrate", aiAuthenticated(
-		grpcclient.Handler(nd, ndUp, grpcclient.AgentOrchestrate, ndTok)))
-
-	// ── Support routes → Go Support (gRPC) ───────────────────────────────────
-
-	mux.Handle("GET /api/v1/support/seller-summary", authenticated(
-		grpcclient.Handler(sp, spUp, grpcclient.SupportGetSellerSummary, spTok)))
-
-	// ── Internal routes → Go Support (gRPC) ──────────────────────────────────
-
+	// Go Support routes -> HTTP proxy.
+	mux.Handle("/api/v1/support/", authenticated(
+		supportProxy.HandlerWithRewrite("/api/v1/support", "/api")))
+	mux.Handle("/internal/support/", internalStack(
+		supportProxy.Handler("/internal/support")))
 	mux.Handle("GET /internal/validate-ssql", internalStack(
-		grpcclient.Handler(sp, spUp, grpcclient.SupportValidateSSQL, spTok)))
+		supportProxy.Handler("/internal")))
 
-	// ── Catch-all 404 ─────────────────────────────────────────────────────────
-
+	// Catch-all 404.
 	mux.Handle("/", base(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		traceID := tracing.TraceIDFrom(r.Context())
 		responses.Error(w, http.StatusNotFound, "NOT_FOUND",

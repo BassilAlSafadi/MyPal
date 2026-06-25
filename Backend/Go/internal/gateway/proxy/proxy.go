@@ -135,6 +135,9 @@ func rewritePath(path, prefixToStrip, upstreamPrefix string) string {
 	if upstreamPrefix == "" || upstreamPrefix == "/" {
 		return targetPath
 	}
+	if targetPath == "/" {
+		return strings.TrimRight(upstreamPrefix, "/")
+	}
 	return strings.TrimRight(upstreamPrefix, "/") + targetPath
 }
 

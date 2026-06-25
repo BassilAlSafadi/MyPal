@@ -67,6 +67,43 @@ function realText(value: unknown): string {
   return MOCK_MARKERS.some((m) => text.toLowerCase().includes(m)) ? '' : text;
 }
 
+function aiResultText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value == null) return '';
+
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    if (typeof record.report === 'string') {
+      const profiles = Array.isArray(record.profiles) ? record.profiles : [];
+      const profileText = profiles
+        .map((profile, index) => {
+          const p = profile as Record<string, unknown>;
+          const name = typeof p.product_name === 'string' ? p.product_name : `Product ${index + 1}`;
+          const score = p.sentiment_score ?? p.grandma_score;
+          const praise = typeof p.key_praise === 'string' ? p.key_praise : '';
+          const complaint = typeof p.key_complaint === 'string' ? p.key_complaint : '';
+          const details = [
+            score != null ? `score: ${score}` : '',
+            praise ? `praise: ${praise}` : '',
+            complaint ? `watchout: ${complaint}` : '',
+          ].filter(Boolean).join('; ');
+          return `- ${name}${details ? ` - ${details}` : ''}`;
+        })
+        .join('\n');
+
+      return profileText ? `${record.report}\n\n### Product Profiles\n${profileText}` : record.report;
+    }
+
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  }
+
+  return String(value);
+}
+
 export const searchService = {
   /**
    * Internal semantic search against the MyPal product catalog (pgvector + ProdBERT).
@@ -194,19 +231,19 @@ export const searchService = {
 
   // ── Recommendation system (notebook Cell 33 — MyPalProdRecommender) ───────
   getRecommendations: async (persona: string, catalog: Array<{ id: string; title: string; category?: string }>): Promise<string> => {
-    const r = await apiClient.post<{ result: string }>('/api/v1/ai/recommend', {
+    const r = await apiClient.post<{ result: unknown }>('/api/v1/ai/recommend', {
       persona,
       catalog,
     });
-    return r.result || '';
+    return aiResultText(r.result);
   },
 
   // ── Seller Analytics (notebook Cell 35 — MyPalSellerAnalytics) ────────────
   analyzeSellerPerformance: async (
     products: Array<{ product_name: string; reviews: string[] }>,
   ): Promise<string> => {
-    const r = await apiClient.post<{ result: string }>('/api/v1/ai/seller/analyze', { products });
-    return r.result || '';
+    const r = await apiClient.post<{ result: unknown }>('/api/v1/ai/seller/analyze', { products });
+    return aiResultText(r.result);
   },
 
   // ── Chat thread management ───────────────────────────────────────────────

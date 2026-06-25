@@ -29,16 +29,13 @@ type GatewayTimeouts struct {
 	Default          time.Duration
 }
 
-// Upstreams holds all internal service base URLs (HTTP) and gRPC addresses.
+// Upstreams holds internal service HTTP base URLs plus the same-container C# gRPC address.
 type Upstreams struct {
 	CSharpMainAPI    string
 	GoSupportService string
 	NodeOrchestrator string
 	PythonProdBERT   string
-	// gRPC addresses (host:port, no scheme).
-	CSharpGRPC  string
-	NodeGRPC    string
-	SupportGRPC string
+	CSharpGRPC       string
 }
 
 // AuthConfig holds JWT and internal service auth config.
@@ -73,8 +70,8 @@ func Load() (*GatewayConfig, error) {
 		Port:         getEnv("GO_GATEWAY_PORT", getEnv("PORT", "8080")),
 		MaxBodyBytes: int64(getEnvInt("GATEWAY_MAX_BODY_BYTES", 4*1024*1024)), // 4MB
 		Timeout: GatewayTimeouts{
-			CSharpAPI:        getEnvDuration("TIMEOUT_CSHARP_MS", 5000),
-			GoSupport:        getEnvDuration("TIMEOUT_GO_SUPPORT_MS", 5000),
+			CSharpAPI: getEnvDuration("TIMEOUT_CSHARP_MS", 5000),
+			GoSupport: getEnvDuration("TIMEOUT_GO_SUPPORT_MS", 5000),
 			// Pro deep-search runs the full 14-node agentic workflow (~60-90s),
 			// so the Node budget is generous to avoid cutting off a near-complete run.
 			NodeOrchestrator: getEnvDuration("TIMEOUT_NODE_ORCH_MS", 180000),
@@ -86,10 +83,7 @@ func Load() (*GatewayConfig, error) {
 			GoSupportService: getEnv("GO_SUPPORT_URL", "http://localhost:5001"),
 			NodeOrchestrator: getEnv("NODE_ORCHESTRATOR_URL", "http://localhost:5003"),
 			PythonProdBERT:   getEnv("PRODBERT_URL", "http://localhost:8001"),
-			// gRPC addresses (no scheme, just host:port)
-			CSharpGRPC:  getEnv("CSHARP_GRPC_ADDR", "localhost:5010"),
-			NodeGRPC:    getEnv("NODE_GRPC_ADDR", "localhost:5013"),
-			SupportGRPC: getEnv("SUPPORT_GRPC_ADDR", "localhost:5011"),
+			CSharpGRPC:       getEnv("CSHARP_GRPC_ADDR", "localhost:5010"),
 		},
 		Auth: AuthConfig{
 			JWTSecret:            os.Getenv("JWT_SECRET"),
