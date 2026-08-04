@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
-import { tokenStore, refreshTokenStore, apiClient, GatewayError } from '@/api/client';
-import { env } from '@/config/env';
+import { tokenStore, refreshTokenStore, apiClient, APIRequestError } from '@/api/client';
+import { resolveUrl } from '@/config/env';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 /**
@@ -115,7 +115,7 @@ function bootstrapGatewaySession(accessToken: string): void {
     crypto.getRandomValues(arr);
     const traceId = Array.from(arr).map((b) => b.toString(16).padStart(2, '0')).join('');
 
-    fetch(`${env.API_GATEWAY}/api/v1/auth/bootstrap-session`, {
+    fetch(resolveUrl('/api/v1/auth/bootstrap-session'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

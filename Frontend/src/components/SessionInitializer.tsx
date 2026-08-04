@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useAuthStore } from '@/stores/authStore';
-import { apiClient, tokenStore, refreshTokenStore, GatewayError } from '@/api/client';
+import { apiClient, tokenStore, refreshTokenStore, APIRequestError } from '@/api/client';
 
 /**
  * Runs once on app mount. If there is a persisted user or refresh token from a
@@ -61,7 +61,7 @@ const SessionInitializer = () => {
         // cross-reload persistence. The user wakes the app, sees a flash of
         // their session, then gets kicked to login — that's the bug we're fixing.
         const isNetworkOrServerError =
-          !(err instanceof GatewayError) ||
+          !(err instanceof APIRequestError) ||
           err.status >= 500 ||
           err.status === 0;
 

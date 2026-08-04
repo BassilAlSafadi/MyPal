@@ -55,7 +55,7 @@ const AIChatBubble = () => {
       // Run internal search + fast AI search in parallel
       const [internalResults, aiResult] = await Promise.all([
         searchService.performInternalSearch(query),
-        searchService.performAISearch(query, 'fast', []).catch(() => ({ text: '', products: [] })),
+        searchService.performAISearch(query, []).catch(() => ({ text: '', products: [] })),
       ]);
 
       // Build the response text

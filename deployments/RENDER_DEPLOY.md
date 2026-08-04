@@ -63,7 +63,7 @@ Host=aws-0-eu-west-1.pooler.supabase.com;Port=5432;Database=postgres;Username=po
 | mypal-csharp | `POSTGRES_URL` | format **B** above |
 | mypal-csharp | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | optional — blank disables Google login |
 | mypal-csharp | `FRONTEND_URL` | your Vercel URL (set after step 4; can edit later) |
-| mypal-node | `COHERE_API_KEY` / `GEMINI_API_KEY` | optional — AI search degrades without them |
+| mypal-ai | `GEMINI_API_KEY` / `HUGGING_FACE_API_KEY` | optional — AI search degrades without them |
 | mypal-support | `POSTGRES_URL` | format **A** above |
 
 `INTERNAL_SERVICE_TOKEN` is auto-generated. Click **Apply**.

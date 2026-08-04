@@ -1,18 +1,23 @@
 /**
- * Centralized API Gateway client for the MyPal frontend.
+ * Centralized API client for the MyPal frontend.
  *
- * All backend requests MUST go through this client — never call
- * internal services (C#, Node, Python) directly from the frontend.
+ * All backend requests MUST go through this client, so that auth, tracing and
+ * error handling stay in one place.
+ *
+ * The Go gateway that used to front every service is gone: requests are now
+ * addressed to the six services directly. `resolveUrl` maps a request path to
+ * the service that owns it (see config/env.ts) — callers still pass the same
+ * /api/v1/... paths they always did and do not know which service answers.
  *
  * Features:
- * - All requests routed through the Go Gateway (env.API_GATEWAY)
+ * - Per-service base URL resolution from the request path
  * - Automatic Authorization header injection from in-memory token store
  * - X-Trace-ID propagation for distributed observability
  * - Structured typed error handling via APIError
- * - Refresh token flow hook (Phase 2)
+ * - Refresh token flow, always against the auth service
  */
 
-import { env } from '@/config/env';
+import { resolveUrl, type ServiceName } from '@/config/env';
 
 // ──────────────────────────────────────────
 // Types
@@ -30,14 +35,14 @@ export interface APIResponse<T> {
   error?: APIError;
 }
 
-export class GatewayError extends Error {
+export class APIRequestError extends Error {
   public readonly code: string;
   public readonly traceId?: string;
   public readonly status: number;
 
   constructor(status: number, error: APIError) {
     super(error.message);
-    this.name = 'GatewayError';
+    this.name = 'APIRequestError';
     this.code = error.code;
     this.traceId = error.trace_id;
     this.status = status;
@@ -94,13 +99,13 @@ function generateTraceId(): string {
 // Core fetch wrapper
 // ──────────────────────────────────────────
 
-async function gatewayFetch<T>(
+async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
   retryOnUnauthorized = true,
 ): Promise<T> {
   const traceId = generateTraceId();
-  const url = `${env.API_GATEWAY}${path}`;
+  const url = resolveUrl(path);
 
   const headers = new Headers(options.headers);
   if (options.body != null && !headers.has('Content-Type')) {
@@ -122,14 +127,14 @@ async function gatewayFetch<T>(
   if (response.status === 401 && retryOnUnauthorized && shouldRefreshOnUnauthorized(path)) {
     const refreshOutcome = await refreshAccessToken();
     if (refreshOutcome === 'ok') {
-      return gatewayFetch<T>(path, options, false);
+      return apiFetch<T>(path, options, false);
     }
     if (refreshOutcome === 'soft_fail') {
       // Backend is temporarily down (5xx / network error). Don't propagate the
       // original 401 — that would look like "token rejected" to callers like
       // SessionInitializer and cause a logout. Throw 503 instead so the caller
       // knows the session is still valid but the backend is unreachable.
-      throw new GatewayError(503, {
+      throw new APIRequestError(503, {
         code: 'SERVICE_UNAVAILABLE',
         message: 'Service temporarily unavailable, please try again shortly.',
       });
@@ -145,7 +150,7 @@ async function gatewayFetch<T>(
 
   if (isAPIResponse<T>(body)) {
     if (!response.ok || !body.success) {
-      throw new GatewayError(response.status, body.error ?? {
+      throw new APIRequestError(response.status, body.error ?? {
         code: response.status === 401 ? 'UNAUTHORIZED' : 'UNKNOWN',
         message: response.status === 401 ? 'Session expired. Please log in again.' : 'An unknown error occurred',
         trace_id: traceId,
@@ -156,7 +161,7 @@ async function gatewayFetch<T>(
   }
 
   if (!response.ok) {
-    throw new GatewayError(response.status, errorFromRawBody(body, traceId, response.status));
+    throw new APIRequestError(response.status, errorFromRawBody(body, traceId, response.status));
   }
 
   return body as T;
@@ -169,7 +174,7 @@ async function refreshAccessToken(): Promise<RefreshOutcome> {
 
   try {
     const storedRefreshToken = refreshTokenStore.get();
-    const response = await fetch(`${env.API_GATEWAY}/api/v1/auth/refresh`, {
+    const response = await fetch(resolveUrl('/api/v1/auth/refresh'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -270,35 +275,54 @@ function statusCodeToErrorCode(status: number): string {
 
 export const apiClient = {
   get: <T>(path: string, options?: RequestInit) =>
-    gatewayFetch<T>(path, { ...options, method: 'GET' }),
+    apiFetch<T>(path, { ...options, method: 'GET' }),
 
   post: <T>(path: string, body: unknown, options?: RequestInit) =>
-    gatewayFetch<T>(path, {
+    apiFetch<T>(path, {
       ...options,
       method: 'POST',
       body: JSON.stringify(body),
     }),
 
   put: <T>(path: string, body: unknown, options?: RequestInit) =>
-    gatewayFetch<T>(path, {
+    apiFetch<T>(path, {
       ...options,
       method: 'PUT',
       body: JSON.stringify(body),
     }),
 
   delete: <T>(path: string, options?: RequestInit) =>
-    gatewayFetch<T>(path, { ...options, method: 'DELETE' }),
+    apiFetch<T>(path, { ...options, method: 'DELETE' }),
 };
 
 // ──────────────────────────────────────────
-// Gateway health check (used in dev tooling)
+// Service health checks (used in dev tooling)
 // ──────────────────────────────────────────
 
-export async function checkGatewayHealth(): Promise<boolean> {
+/** Pings one service's /health endpoint. */
+export async function checkServiceHealth(service: ServiceName): Promise<boolean> {
   try {
-    await fetch(`${env.API_GATEWAY}/health`);
+    await fetch(`${SERVICE_HEALTH_PATHS[service]}`);
     return true;
   } catch {
     return false;
   }
 }
+
+/** Pings every service and reports which are reachable. */
+export async function checkAllServicesHealth(): Promise<Record<ServiceName, boolean>> {
+  const services = Object.keys(SERVICE_HEALTH_PATHS) as ServiceName[];
+  const results = await Promise.all(services.map(checkServiceHealth));
+  return Object.fromEntries(services.map((s, i) => [s, results[i]])) as Record<ServiceName, boolean>;
+}
+
+// One representative path per service, resolved through the same routing table
+// the request client uses, so health checks follow any base-URL change.
+const SERVICE_HEALTH_PATHS: Record<ServiceName, string> = {
+  auth: resolveUrl('/api/v1/auth').replace('/api/v1/auth', '/health'),
+  listings: resolveUrl('/api/v1/products').replace('/api/v1/products', '/health'),
+  orders: resolveUrl('/api/v1/orders').replace('/api/v1/orders', '/health'),
+  payments: resolveUrl('/api/v1/wallet').replace('/api/v1/wallet', '/health'),
+  ai: resolveUrl('/api/v1/ai').replace('/api/v1/ai', '/health'),
+  messaging: resolveUrl('/api/v1/support').replace('/api/v1/support', '/health'),
+};

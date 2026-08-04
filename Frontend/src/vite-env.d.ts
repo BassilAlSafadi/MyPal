@@ -1,7 +1,16 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_API_GATEWAY?: string;
+  // One base URL per microservice — the single gateway URL is gone.
+  readonly VITE_AUTH_URL?: string;
+  readonly VITE_LISTINGS_URL?: string;
+  readonly VITE_ORDERS_URL?: string;
+  readonly VITE_PAYMENTS_URL?: string;
+  readonly VITE_AI_URL?: string;
+  readonly VITE_MESSAGING_URL?: string;
+
+  readonly VITE_SUPABASE_URL?: string;
+  readonly VITE_SUPABASE_ANON_KEY?: string;
 }
 
 interface ImportMeta {

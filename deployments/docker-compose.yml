@@ -1,5 +1,20 @@
+# MyPal — six microservices, three Postgres databases, two Mongo databases, one Redis.
+#
+#   Frontend ──┬─→ ai        (Go)  → MongoDB  mypal_ai
+#              ├─→ auth      (C#)  → Postgres mypal_auth
+#              ├─→ messaging (Go)  → MongoDB  mypal_messaging
+#              ├─→ orders    (C#)  ┐
+#              ├─→ payments  (C#)  ┴→ Postgres mypal_orders   (shared)
+#              └─→ listings  (C#)  → Postgres mypal_listings
+#
+# Every service also has a Redis cache with a 5 hour TTL.
+#
+# The three Postgres databases are separate databases on one server, so local
+# development needs a single container while each service still gets its own
+# connection string and its own migration history.
+
 services:
-  # Infrastructure
+  # ── Infrastructure ─────────────────────────────────────────────────────────
   postgres:
     image: ankane/pgvector:v0.5.1
     ports:
@@ -7,14 +22,16 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: mypal
+      POSTGRES_DB: postgres
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d mypal"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Creates mypal_auth, mypal_listings and mypal_orders on first boot.
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
 
   mongodb:
     image: mongo:latest
@@ -35,13 +52,81 @@ services:
       - "4222:4222"
       - "8222:8222"
 
-  # Applications
-  go-gateway:
-    build: 
-      context: ../src/MyPal.Api.Go
-      dockerfile: Dockerfile
+  # Local embedding service for semantic search (ONNX, no Python/torch/API key).
+  # listings and ai both call it over PRODBERT_URL; neither of those defaulted
+  # to this hostname before this service existed, so search ran degraded.
+  prodbert:
+    build:
+      context: ../Backend/ProdBERT
     ports:
-      - "8080:8080"
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ── Services ───────────────────────────────────────────────────────────────
+  auth:
+    build:
+      context: ../Backend/CSharp
+      dockerfile: MyPal.Auth/Dockerfile
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      - PORT=5000
+      - AUTH_POSTGRES_URL=Host=postgres;Database=mypal_auth;Username=postgres;Password=postgres
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-supersecret}
+      - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-internal-token}
+      - CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+      - FRONTEND_URL=http://localhost:5173
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  listings:
+    build:
+      context: ../Backend/CSharp
+      dockerfile: MyPal.Listings/Dockerfile
+    ports:
+      - "5002:5002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      prodbert:
+        condition: service_healthy
+    environment:
+      - PORT=5002
+      - LISTINGS_POSTGRES_URL=Host=postgres;Database=mypal_listings;Username=postgres;Password=postgres
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-supersecret}
+      - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-internal-token}
+      - AUTH_SERVICE_URL=http://auth:5000
+      - PRODBERT_URL=${PRODBERT_URL:-http://prodbert:8001}
+      - CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  orders:
+    build:
+      context: ../Backend/CSharp
+      dockerfile: MyPal.Orders/Dockerfile
+    ports:
+      - "5004:5004"
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,107 +134,109 @@ services:
         condition: service_started
       nats:
         condition: service_started
-      csharp-backend:
-        condition: service_started
-      go-support:
-        condition: service_started
-      node-orchestrator:
-        condition: service_started
-      python-prodbert:
-        condition: service_started
     environment:
-      - POSTGRES_URL=postgres://postgres:postgres@postgres:5432/mypal?sslmode=disable
-      - MONGO_URI=mongodb://mongodb:27017/mypal_audit
+      - PORT=5004
+      - ORDERS_POSTGRES_URL=Host=postgres;Database=mypal_orders;Username=postgres;Password=postgres
       - REDIS_URL=redis://redis:6379
-      - CSHARP_MAIN_API_URL=http://csharp-backend:8080
-      - GO_SUPPORT_URL=http://go-support:5001
-      - NODE_ORCHESTRATOR_URL=http://node-orchestrator:5003
-      - PRODBERT_URL=http://python-prodbert:8001
       - NATS_URL=nats://nats:4222
-      - CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
       - JWT_SECRET=${JWT_SECRET:-supersecret}
       - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-internal-token}
+      - AUTH_SERVICE_URL=http://auth:5000
+      - LISTINGS_SERVICE_URL=http://listings:5002
+      - CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:5004/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
-  go-support:
+  payments:
     build:
-      context: ../Backend/Go
-      dockerfile: Dockerfile
+      context: ../Backend/CSharp
+      dockerfile: MyPal.Payments/Dockerfile
     ports:
-      - "5001:5001"
+      - "5005:5005"
     depends_on:
       postgres:
         condition: service_healthy
-      mongodb:
+      redis:
+        condition: service_started
+      # Orders owns the mypal_orders schema, so its migrations must land first.
+      orders:
         condition: service_started
     environment:
-      - POSTGRES_URL=postgres://postgres:postgres@postgres:5432/mypal?sslmode=disable
-      - MONGO_URL=mongodb://mongodb:27017/mypal_audit
-      - GO_SERVER_PORT=5001
-      - API_KEY=${INTERNAL_SERVICE_TOKEN:-internal-token}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  csharp-backend:
-    build: 
-      context: ../Backend/CSharp
-      dockerfile: MyPal.API/Dockerfile
-    ports:
-      - "5000:8080"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      - POSTGRES_URL=Host=postgres;Database=mypal;Username=postgres;Password=postgres
-      - MONGO_URI=mongodb://mongodb:27017/mypal_audit
-      - REDIS_URL=redis:6379
+      - PORT=5005
+      - PAYMENTS_POSTGRES_URL=Host=postgres;Database=mypal_orders;Username=postgres;Password=postgres
+      - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET:-supersecret}
-      - FRONTEND_URL=http://localhost:5173
+      - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-internal-token}
+      - CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      test: ["CMD", "curl", "-f", "http://localhost:5005/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
-  node-orchestrator:
+  ai:
     build:
-      context: ../Backend/Node
+      context: ../Backend/Go
+      dockerfile: Dockerfile.ai
     ports:
       - "5003:5003"
     depends_on:
-      - python-prodbert
-      - postgres
-      - mongodb
+      mongodb:
+        condition: service_started
+      redis:
+        condition: service_started
+      prodbert:
+        condition: service_healthy
     environment:
-      - NODE_ORCHESTRATOR_PORT=5003
-      - COHERE_API_KEY=${COHERE_API_KEY}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - PRODBERT_URL=http://python-prodbert:8001
-      - POSTGRES_URL=postgres://postgres:postgres@postgres:5432/mypal?sslmode=disable
-      - MONGO_URL=mongodb://mongodb:27017/mypal_audit
+      - PORT=5003
+      - AI_MONGO_URL=mongodb://mongodb:27017
+      - AI_MONGO_DB=mypal_ai
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-supersecret}
+      - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-internal-token}
+      - LISTINGS_SERVICE_URL=http://listings:5002
+      - ORDERS_SERVICE_URL=http://orders:5004
+      - PRODBERT_URL=${PRODBERT_URL:-http://prodbert:8001}
+      - CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+      # Model providers — unset keys degrade each node to its mock response.
+      # GEMINI_API_KEY powers every chat model; HUGGING_FACE_API_KEY is only
+      # for the Prompt-Guard security classifier.
+      - HUGGING_FACE_API_KEY=${HUGGING_FACE_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5003/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
-  python-prodbert:
+  messaging:
     build:
-      context: ../Backend/Python
+      context: ../Backend/Go
+      dockerfile: Dockerfile.messaging
     ports:
-      - "8001:8001"
+      - "5001:5001"
+    depends_on:
+      mongodb:
+        condition: service_started
+      redis:
+        condition: service_started
+      ai:
+        condition: service_started
     environment:
-      - PRODBERT_PORT=8001
-      - PRODBERT_MODEL=${PRODBERT_MODEL:-sentence-transformers/paraphrase-MiniLM-L3-v2}
+      - PORT=5001
+      - MESSAGING_MONGO_URL=mongodb://mongodb:27017
+      - MESSAGING_MONGO_DB=mypal_messaging
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-supersecret}
+      - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-internal-token}
+      - AI_SERVICE_URL=http://ai:5003
+      - CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
       interval: 30s
       timeout: 10s
       retries: 3

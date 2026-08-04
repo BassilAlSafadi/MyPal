@@ -4,10 +4,10 @@ import { productService } from '@/services/productService';
 import { walletService } from '@/services/walletService';
 import { searchService } from '@/services/searchService';
 import { useAsync } from '@/hooks/useAsync';
-import { 
-  Search, Sparkles, TrendingUp, ChevronRight, ArrowRight,
+import {
+  Search, TrendingUp, ChevronRight, ArrowRight,
   Smartphone, Shirt, Home, Dumbbell, BookOpen, Car, Palette, Briefcase,
-  Clock, Package, Globe, Database, Terminal, Loader2, Star, Tag, Settings
+  Clock, Package, Loader2, Star, Tag, Settings
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -36,7 +36,7 @@ const categories = [
 const HomeScreen = () => {
   const navigate = useNavigate();
   const { recentViews } = useMockStore();
-  const { mode, setMode, runSearch, isSearching, consoleLogs } = useSearchStore();
+  const { runSearch, isSearching } = useSearchStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<ProductPreview | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -171,43 +171,13 @@ const HomeScreen = () => {
 
         {/* Search Experience */}
         <div className="space-y-3">
-          {/* Mode Toggle */}
-          <div className="flex p-1 bg-secondary/50 rounded-xl w-fit border border-border/50 self-center mx-auto">
-            <button
-              onClick={() => setMode('internal')}
-              className={cn(
-                "flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
-                mode === 'internal' ? "bg-white shadow-sm text-cobalt" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Database className="w-3 h-3" />
-              <span className="hidden sm:inline">MyPal</span>
-              <span className="sm:hidden">Internal</span>
-            </button>
-            <button
-              onClick={() => setMode('global')}
-              className={cn(
-                "flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
-                mode === 'global' ? "bg-white shadow-sm text-purple-600" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Globe className="w-3 h-3" />
-              <span className="hidden sm:inline">Global Agentic</span>
-              <span className="sm:hidden">Agentic</span>
-            </button>
-          </div>
-
           {/* Search Bar */}
           <div className="glass-card p-1 flex items-center gap-2 shadow-lg border-cobalt-light/20">
             <div className="flex-1 flex items-center gap-2 px-3">
-              {mode === 'global' ? (
-                <Sparkles className="w-4 h-4 text-purple-500 flex-shrink-0 animate-pulse" />
-              ) : (
-                <Search className="w-4 h-4 text-cobalt-light flex-shrink-0" />
-              )}
+              <Search className="w-4 h-4 text-cobalt-light flex-shrink-0" />
               <Input
                 ref={searchInputRef}
-                placeholder={mode === 'global' ? "Ask the AI Agent to find anything..." : "Search internal inventory..."}
+                placeholder="Search internal inventory..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -218,10 +188,7 @@ const HomeScreen = () => {
             <button
               onClick={handleSearch}
               disabled={isSearching}
-              className={cn(
-                "p-2.5 rounded-lg transition-all shadow-md",
-                mode === 'global' ? "bg-purple-600 hover:bg-purple-700" : "bg-gradient-cobalt hover:opacity-90"
-              )}
+              className="p-2.5 rounded-lg transition-all shadow-md bg-gradient-cobalt hover:opacity-90"
             >
               {isSearching ? (
                 <Loader2 className="w-4 h-4 text-primary-foreground animate-spin" />
@@ -232,30 +199,6 @@ const HomeScreen = () => {
           </div>
         </div>
       </div>
-
-      {/* Status Console (Progressive Disclosure) */}
-      {isSearching && mode === 'global' && (
-        <div className="px-4 animate-fade-in">
-          <div className="glass-card border-purple-500/20 bg-purple-500/[0.02] p-4 space-y-3">
-            <div className="flex items-center gap-2 text-purple-600">
-              <Terminal className="w-4 h-4" />
-              <span className="text-[10px] font-black uppercase tracking-widest">Agentic Orchestration</span>
-            </div>
-            <div className="space-y-1.5">
-              {consoleLogs.map((log, i) => (
-                <div key={i} className="flex items-center gap-2 animate-fade-in">
-                  <div className="w-1 h-1 rounded-full bg-purple-400" />
-                  <p className="text-xs font-medium text-slate-600">{log}</p>
-                </div>
-              ))}
-              <div className="flex items-center gap-2">
-                <Loader2 className="w-3 h-3 text-purple-400 animate-spin" />
-                <p className="text-xs font-bold text-purple-500 animate-pulse">Running agents...</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Main Content */}
       <div className="px-4 space-y-8 mt-4">

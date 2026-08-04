@@ -5,8 +5,16 @@
 # after sleep takes ~30s to wake up. Fine for a personal/demo project.
 #
 # Because free services can't be "private" (pserv), everything is type: web.
-# Internal service URLs use Render's private network hostnames so they never
-# go over the public internet even though they have public URLs too.
+# Internal service URLs use Render's private network hostnames so service-to-
+# service calls never go over the public internet even though they have public
+# URLs too. The SPA calls all six public URLs directly — there is no gateway.
+#
+# DATABASES
+#   mypal_auth     → auth
+#   mypal_listings → listings
+#   mypal_orders   → orders + payments (shared, deliberately)
+#   MongoDB        → ai (mypal_ai) and messaging (mypal_messaging)
+#   Redis          → all six, 5 hour TTL
 #
 # HOW TO APPLY
 #   Render Dashboard → Blueprints → New Blueprint Instance → Solly2005/MyPal
@@ -21,52 +29,31 @@ envVarGroups:
         sync: false
       - key: SESSION_SECRET
         sync: false
-
-services:
-  # ── Public API Gateway ──────────────────────────────────────────────────
-  - type: web
-    name: mypal-gateway
-    runtime: docker
-    repo: https://github.com/Solly2005/MyPal
-    branch: deploy/render-vercel
-    rootDir: Backend/Go
-    dockerfilePath: ./Dockerfile.gateway
-    plan: free
-    healthCheckPath: /health
-    envVars:
-      - fromGroup: mypal-shared
-      - key: MESSAGING_ENABLED
-        value: "false"
+      # Guards the /internal/* routes services call on each other.
       - key: INTERNAL_SERVICE_TOKEN
-        generateValue: true
-      - key: POSTGRES_URL
         sync: false
-      - key: CSHARP_MAIN_API_URL
-        value: http://mypal-csharp:8080
-      - key: GO_SUPPORT_URL
-        value: http://mypal-support:5001
-      - key: NODE_ORCHESTRATOR_URL
-        value: http://mypal-node:5003
-      - key: PRODBERT_URL
-        value: http://mypal-node:5003
+      # Shared 5 hour read cache for every service.
+      - key: REDIS_URL
+        sync: false
       - key: CORS_ALLOWED_ORIGINS
         sync: false
 
-  # ── C# Main API ─────────────────────────────────────────────────────────
+services:
+  # ── Auth (C#) → mypal_auth ───────────────────────────────────────────────
   - type: web
-    name: mypal-csharp
+    name: mypal-auth
     runtime: docker
     repo: https://github.com/Solly2005/MyPal
     branch: deploy/render-vercel
     rootDir: Backend/CSharp
-    dockerfilePath: ./MyPal.API/Dockerfile
+    dockerfilePath: ./MyPal.Auth/Dockerfile
     plan: free
-    healthCheckPath: /
+    healthCheckPath: /health
     envVars:
       - fromGroup: mypal-shared
       - key: PORT
-        value: "8080"
-      - key: POSTGRES_SESSION_URL   # Npgsql keyword form — read first by Program.cs
+        value: "5000"
+      - key: AUTH_POSTGRES_URL      # Npgsql keyword form
         sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false
@@ -75,52 +62,122 @@ services:
       - key: FRONTEND_URL
         sync: false
 
-  # ── Node Orchestrator ────────────────────────────────────────────────────
+  # ── Listings (C#) → mypal_listings ───────────────────────────────────────
   - type: web
-    name: mypal-node
+    name: mypal-listings
     runtime: docker
     repo: https://github.com/Solly2005/MyPal
     branch: deploy/render-vercel
-    rootDir: Backend/Node
-    dockerfilePath: ./Dockerfile
+    rootDir: Backend/CSharp
+    dockerfilePath: ./MyPal.Listings/Dockerfile
     plan: free
     healthCheckPath: /health
     envVars:
+      - fromGroup: mypal-shared
       - key: PORT
-        value: "5003"
-      - key: GROQ_API_KEY
+        value: "5002"
+      - key: LISTINGS_POSTGRES_URL
         sync: false
-      - key: TAVILY_API_KEY
-        sync: false
-      - key: COHERE_API_KEY
-        sync: false
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: GITHUB_TOKEN
-        sync: false
-      - key: HUGGING_FACE_API_KEY
-        sync: false
-      - key: MISTRAL_API_KEY
-        sync: false
-      - key: GOOGLE_API_KEY
-        sync: false
-      - key: ENABLE_LLM_FALLBACK
-        value: "true"
-      - key: tavily_api_key
+      - key: AUTH_SERVICE_URL
+        value: http://mypal-auth:5000
+      - key: PRODBERT_URL
         sync: false
 
-  # ── Go Support ───────────────────────────────────────────────────────────
+  # ── Orders (C#) → mypal_orders ───────────────────────────────────────────
   - type: web
-    name: mypal-support
+    name: mypal-orders
+    runtime: docker
+    repo: https://github.com/Solly2005/MyPal
+    branch: deploy/render-vercel
+    rootDir: Backend/CSharp
+    dockerfilePath: ./MyPal.Orders/Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - fromGroup: mypal-shared
+      - key: PORT
+        value: "5004"
+      - key: ORDERS_POSTGRES_URL
+        sync: false
+      - key: AUTH_SERVICE_URL
+        value: http://mypal-auth:5000
+      - key: LISTINGS_SERVICE_URL
+        value: http://mypal-listings:5002
+      # Leave NATS_URL unset to run without the event bus: the outbox still
+      # records events durably, the dispatcher simply stays off.
+      - key: NATS_URL
+        sync: false
+
+  # ── Payments (C#) → mypal_orders, shared with orders ─────────────────────
+  - type: web
+    name: mypal-payments
+    runtime: docker
+    repo: https://github.com/Solly2005/MyPal
+    branch: deploy/render-vercel
+    rootDir: Backend/CSharp
+    dockerfilePath: ./MyPal.Payments/Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - fromGroup: mypal-shared
+      - key: PORT
+        value: "5005"
+      # The same database as mypal-orders. Orders owns the schema and runs the
+      # migrations; payments only maps wallets, transactions and orders.
+      - key: PAYMENTS_POSTGRES_URL
+        sync: false
+
+  # ── AI (Go) → MongoDB ────────────────────────────────────────────────────
+  - type: web
+    name: mypal-ai
     runtime: docker
     repo: https://github.com/Solly2005/MyPal
     branch: deploy/render-vercel
     rootDir: Backend/Go
-    dockerfilePath: ./Dockerfile
+    dockerfilePath: ./Dockerfile.ai
     plan: free
     healthCheckPath: /health
     envVars:
+      - fromGroup: mypal-shared
+      - key: PORT
+        value: "5003"
+      - key: AI_MONGO_URL
+        sync: false
+      - key: AI_MONGO_DB
+        value: mypal_ai
+      - key: LISTINGS_SERVICE_URL
+        value: http://mypal-listings:5002
+      - key: ORDERS_SERVICE_URL
+        value: http://mypal-orders:5004
+      - key: PRODBERT_URL
+        sync: false
+      # Model providers. An unset key degrades that node to its mock response
+      # rather than failing the request. GEMINI_API_KEY powers every chat
+      # model; HUGGING_FACE_API_KEY is only for the Prompt-Guard classifier.
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: HUGGING_FACE_API_KEY
+        sync: false
+
+  # ── Messaging (Go) → MongoDB ─────────────────────────────────────────────
+  - type: web
+    name: mypal-messaging
+    runtime: docker
+    repo: https://github.com/Solly2005/MyPal
+    branch: deploy/render-vercel
+    rootDir: Backend/Go
+    dockerfilePath: ./Dockerfile.messaging
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - fromGroup: mypal-shared
       - key: PORT
         value: "5001"
-      - key: POSTGRES_URL
+      - key: MESSAGING_MONGO_URL
         sync: false
+      - key: MESSAGING_MONGO_DB
+        value: mypal_messaging
+      - key: AI_SERVICE_URL
+        value: http://mypal-ai:5003

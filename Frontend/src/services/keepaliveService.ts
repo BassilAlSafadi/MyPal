@@ -1,8 +1,10 @@
-import { env } from '@/config/env';
+import { checkAllServicesHealth } from '@/api/client';
 
-// Ping the Go gateway every 4 minutes while the tab is visible.
-// This prevents the HF space from going idle when someone is actively using the app.
-// For true 24/7 uptime (no active user), a GitHub Actions cron handles the out-of-band pings.
+// Ping every service every 4 minutes while the tab is visible.
+// This prevents idle hosting tiers from spinning down while someone is actively
+// using the app. There are six services to keep warm now rather than one gateway.
+// For true 24/7 uptime (no active user), a GitHub Actions cron handles the
+// out-of-band pings.
 const PING_INTERVAL_MS = 4 * 60 * 1000;
 
 let intervalId: ReturnType<typeof setInterval> | null = null;
@@ -10,7 +12,7 @@ let intervalId: ReturnType<typeof setInterval> | null = null;
 async function ping() {
   if (document.visibilityState === 'hidden') return;
   try {
-    await fetch(`${env.API_GATEWAY}/health`, { method: 'GET', cache: 'no-store' });
+    await checkAllServicesHealth();
   } catch {
     // best-effort — silently ignore failures
   }

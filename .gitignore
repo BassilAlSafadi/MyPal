@@ -27,6 +27,9 @@ Backend/Go/support
 # IDE / run configs
 .run/
 
+# dev-up.sh backend log output
+.dev-logs/
+
 # Secrets and Environment Variables
 .env
 .env.*
