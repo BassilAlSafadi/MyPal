@@ -1,23 +1,20 @@
 import { apiClient, tokenStore, refreshTokenStore } from '@/api/client';
-import { env } from '@/config/env';
+import { resolveUrl } from '@/config/env';
 import { UserIdentity, LoginResponse } from '../../../shared/contracts/auth/identity';
 
 /**
  * Authentication Service for MyPal Frontend.
- * 
- * Interacts with the Go Gateway which proxies identity requests to the C# Main API.
  */
 export const authService = {
   /**
-   * Initiates Google OAuth login flow by redirecting to the Gateway.
+   * Initiates Google OAuth login flow by sending the browser straight to the
+   * auth service (never through the Vite proxy or a build-time-baked URL for
+   * a different environment) — the state cookie set on login must be
+   * readable on callback, so both legs of the redirect need to land on
+   * whichever host is actually serving auth for this build.
    */
   loginWithGoogle: () => {
-    // Go directly to the C# API for Google OAuth — bypassing the Supabase proxy.
-    // OAuth requires cookies to stay on the same domain throughout the flow
-    // (state cookie set on login must be readable on callback). Going through
-    // the proxy breaks this because the cookie domain would change.
-    const csharpBase = 'https://solly2005-mypal-csharp.hf.space';
-    window.location.href = `${csharpBase}/api/auth/google/login`;
+    window.location.href = resolveUrl('/api/auth/google/login');
   },
 
   /**

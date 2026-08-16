@@ -1,0 +1,14 @@
+{
+  "name": "mypal-prodbert",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local embedding service satisfying the PRODBERT_URL /embed contract the listings service expects, using an ONNX sentence-transformers model via @xenova/transformers (no Python/torch, no API key).",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@xenova/transformers": "^2.17.2",
+    "pg": "^8.22.0"
+  }
+}

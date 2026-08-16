@@ -1,31 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useSearchStore, SearchResult } from '@/stores/searchStore';
-import { 
-  Search, SlidersHorizontal, Sparkles, X, Globe, Database, Terminal, Loader2
-} from 'lucide-react';
+import { Search, SlidersHorizontal, X, Database, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import BottomNav from '@/components/BottomNav';
 import ProductCard, { ProductCardSkeleton } from '@/components/ProductCard';
 import { ProductPreviewDrawer } from '@/components/ProductPreviewDrawer';
-import { cn } from '@/lib/utils';
 
 const SearchScreen = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const { mode, setMode, query, setQuery, runSearch, isSearching, results, aiAnswer, consoleLogs, globalQuota, fetchGlobalQuota } = useSearchStore();
-  
+  const { query, setQuery, runSearch, isSearching, results, error } = useSearchStore();
+
   const initialQuery = searchParams.get('q') || '';
-  
-  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-
-  const globalQuotaFull = mode === 'global' && globalQuota.remaining <= 0;
-
-  useEffect(() => { fetchGlobalQuota(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (initialQuery && initialQuery !== query) {
@@ -50,7 +40,7 @@ const SearchScreen = () => {
   }, []);
 
   const handleSearch = () => {
-    if (query.trim() && !globalQuotaFull) {
+    if (query.trim()) {
       setSearchParams({ q: query.trim() });
       runSearch(query.trim());
     }
@@ -58,66 +48,28 @@ const SearchScreen = () => {
 
   return (
     <div className="min-h-screen bg-background pb-nav-safe">
-      {/* Header (Evolved for Desktop Density) */}
+      {/* Header */}
       <div className="px-4 sm:px-6 pt-4 sm:pt-8 pb-4 sm:pb-6 space-y-4 sm:space-y-6 sticky top-0 bg-background/95 backdrop-blur-md z-30 border-b border-border/50">
         <div className="max-w-[1400px] mx-auto w-full space-y-6">
           <div className="flex flex-col md:flex-row md:items-center gap-6">
             {/* Search Bar Group */}
             <div className="flex-1 flex flex-col gap-4">
               <div className="flex items-center gap-3">
-                <div className="flex p-1 bg-secondary/50 rounded-xl border border-border/50">
-                  <button
-                    onClick={() => setMode('internal')}
-                    className={cn(
-                      "flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
-                      mode === 'internal' ? "bg-white shadow-sm text-cobalt" : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <Database className="w-3.5 h-3.5" /> MyPal Internal
-                  </button>
-                  <button
-                    onClick={() => setMode('global')}
-                    className={cn(
-                      "flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
-                      mode === 'global' ? "bg-white shadow-sm text-purple-600" : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <Globe className="w-3.5 h-3.5" /> Global Agentic
-                  </button>
+                <div className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest bg-secondary/50 border border-border/50 text-cobalt">
+                  <Database className="w-3.5 h-3.5" /> MyPal Internal
                 </div>
-
-                {/* Global quota counter — visible whenever Global mode is active */}
-                {mode === 'global' && (
-                  <span className={cn(
-                    "text-xs font-semibold tabular-nums px-2.5 py-1 rounded-full border whitespace-nowrap",
-                    globalQuotaFull
-                      ? "text-destructive border-destructive/40 bg-destructive/5"
-                      : "text-purple-600 border-purple-300/50 bg-purple-50/50 dark:bg-purple-900/10"
-                  )}>
-                    {globalQuota.remaining}/{globalQuota.limit} searches left
-                  </span>
-                )}
               </div>
 
               <div className="glass-card p-1 flex items-center gap-2 shadow-lg border-cobalt-light/20">
                 <div className="flex-1 flex items-center gap-2 px-3">
-                  {mode === 'global' ? (
-                    <Sparkles className="w-4 h-4 text-purple-500 animate-pulse" />
-                  ) : (
-                    <Search className="w-4 h-4 text-cobalt-light" />
-                  )}
+                  <Search className="w-4 h-4 text-cobalt-light" />
                   <Input
                     ref={searchInputRef}
-                    placeholder={
-                      globalQuotaFull
-                        ? "Daily limit reached — resets at midnight"
-                        : mode === 'global' ? "Describe exactly what you need..." : "Search resident inventory..."
-                    }
+                    placeholder="Search resident inventory..."
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                    disabled={globalQuotaFull}
-                    className="bg-transparent border-none text-foreground placeholder:text-muted-foreground focus-visible:ring-0 h-10 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="bg-transparent border-none text-foreground placeholder:text-muted-foreground focus-visible:ring-0 h-10 text-base"
                   />
                   {query && (
                     <button onClick={() => setQuery('')} className="p-1 hover:bg-secondary rounded-full">
@@ -128,12 +80,8 @@ const SearchScreen = () => {
                 </div>
                 <Button
                   onClick={handleSearch}
-                  disabled={isSearching || globalQuotaFull}
-                  className={cn(
-                    "h-10 px-6 rounded-lg font-bold gap-2 shadow-md",
-                    mode === 'global' ? "bg-purple-600 hover:bg-purple-700" : "bg-gradient-cobalt hover:opacity-90",
-                    globalQuotaFull && "opacity-50 cursor-not-allowed"
-                  )}
+                  disabled={isSearching}
+                  className="h-10 px-6 rounded-lg font-bold gap-2 shadow-md bg-gradient-cobalt hover:opacity-90"
                 >
                   {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
                   <span className="hidden sm:inline">Search</span>
@@ -148,44 +96,6 @@ const SearchScreen = () => {
               </Button>
             </div>
           </div>
-
-          {/* Quota-exhausted banner */}
-          {mode === 'global' && globalQuotaFull && (
-            <div className="animate-fade-in w-full">
-              <div className="glass-card border-destructive/30 bg-destructive/5 px-4 py-3 flex items-center gap-3">
-                <Globe className="w-4 h-4 text-destructive flex-shrink-0" />
-                <p className="text-xs font-semibold text-destructive">
-                  You've used all {globalQuota.limit} Global Agentic searches for today. Resets at midnight.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Status Console (Evolved for Explainable AI) */}
-          {isSearching && mode === 'global' && (
-            <div className="animate-fade-in w-full">
-              <div className="glass-card border-purple-500/20 bg-purple-500/[0.02] p-5 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-purple-600">
-                    <Terminal className="w-4 h-4" />
-                    <span className="text-[10px] font-black uppercase tracking-widest">Multi-Agent Orchestration Engine</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Loader2 className="w-3 h-3 text-purple-400 animate-spin" />
-                    <span className="text-[10px] font-bold text-purple-400 uppercase">Live Discovery</span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-2">
-                  {consoleLogs.map((log, i) => (
-                    <div key={i} className="flex items-center gap-3 animate-fade-in">
-                      <div className="w-1.5 h-1.5 rounded-full bg-purple-400/50" />
-                      <p className="text-xs font-semibold text-slate-600">{log}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
@@ -197,31 +107,15 @@ const SearchScreen = () => {
               <ProductCardSkeleton key={i} />
             ))}
           </div>
-        ) : results.length > 0 || aiAnswer ? (
+        ) : results.length > 0 ? (
           <div className="space-y-8">
-            {/* Gemini answer card — only shown in global mode */}
-            {mode === 'global' && aiAnswer && (
-              <div className="glass-card border-purple-500/20 bg-purple-500/[0.03] p-5 space-y-3 animate-fade-in">
-                <div className="flex items-center gap-2 text-purple-600">
-                  <Sparkles className="w-4 h-4" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Gemini Answer</span>
-                </div>
-                <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{aiAnswer}</div>
-              </div>
-            )}
-
-            {results.length > 0 && (
             <div className="flex items-end justify-between">
               <div>
-                <h2 className="text-2xl font-serif font-bold text-foreground">
-                  {mode === 'global' ? 'Synthesized Agent Matches' : 'Resident Inventory Results'}
-                </h2>
+                <h2 className="text-2xl font-serif font-bold text-foreground">Resident Inventory Results</h2>
                 <p className="text-sm text-muted-foreground font-medium">Found {results.length} matches for your query</p>
               </div>
             </div>
-            )}
 
-            {results.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-6">
               {results.map((product) => (
                 <ProductCard
@@ -231,7 +125,14 @@ const SearchScreen = () => {
                 />
               ))}
             </div>
-            )}
+          </div>
+        ) : error ? (
+          <div className="text-center py-32 space-y-4">
+            <div className="w-20 h-20 bg-destructive/10 rounded-full flex items-center justify-center mx-auto mb-6">
+              <X className="w-10 h-10 text-destructive/60" />
+            </div>
+            <h3 className="text-2xl font-serif font-bold text-foreground">Search failed</h3>
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto">{error}</p>
           </div>
         ) : (
           <div className="text-center py-32 space-y-4">
@@ -240,14 +141,14 @@ const SearchScreen = () => {
             </div>
             <h3 className="text-2xl font-serif font-bold text-foreground">No matches identified</h3>
             <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-              Our agents couldn't find an exact match. Try adjusting your query or switching search modes.
+              Our agents couldn't find an exact match. Try adjusting your query.
             </p>
           </div>
         )}
       </div>
 
       {/* Side-Panel Product Detail */}
-      <ProductPreviewDrawer 
+      <ProductPreviewDrawer
         product={selectedResult}
         isOpen={!!selectedResult}
         onClose={() => setSelectedResult(null)}

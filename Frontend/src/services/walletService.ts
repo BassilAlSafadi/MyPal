@@ -6,10 +6,14 @@ export interface WalletBalance {
   currency: string;
 }
 
+/** The values the transactions.type CHECK constraint allows. */
+export type TransactionType = 'AddFunds' | 'Purchase' | 'Refund' | 'Withdrawal';
+
 export interface WalletTransaction {
   id: string;
-  type: string;        // 'Deposit' | 'Purchase' | 'Refund'
-  amount: number;      // negative = outflow (e.g. withdrawal / purchase)
+  /** 'Withdrawal' is legacy only — withdrawing was removed and nothing writes it. */
+  type: TransactionType | string;
+  amount: number;      // negative = outflow (e.g. a purchase)
   orderId?: string | null;
   createdAt?: string | null;
 }
@@ -34,20 +38,20 @@ export const walletService = {
     const r = await apiClient.get<{ transactions: RawTxn[] }>('/api/v1/wallet/transactions');
     return (r.transactions ?? []).map((t) => ({
       id: t.id,
-      type: t.type ?? 'Deposit',
+      type: t.type ?? 'AddFunds',
       amount: Number(t.amount ?? 0),
       orderId: t.order_id,
       createdAt: t.created_at,
     }));
   },
 
-  deposit: async (amount: number): Promise<number> => {
-    const r = await apiClient.post<{ balance: number | string }>('/api/v1/wallet/deposit', { amount });
-    return Number(r.balance ?? 0);
-  },
-
-  withdraw: async (amount: number): Promise<number> => {
-    const r = await apiClient.post<{ balance: number | string }>('/api/v1/wallet/withdraw', { amount });
+  /**
+   * Adds money to the wallet. This is the only wallet write a user can initiate —
+   * there is deliberately no withdraw: MyPal wallet money is spendable in-app and
+   * never leaves it.
+   */
+  addFunds: async (amount: number): Promise<number> => {
+    const r = await apiClient.post<{ balance: number | string }>('/api/v1/wallet/add-funds', { amount });
     return Number(r.balance ?? 0);
   },
 };
